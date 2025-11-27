@@ -19,6 +19,10 @@ This project exposes a simple FastAPI service that queries a PostgreSQL database
       `final_category`, `final_confidence`, `routing_decision`, `consensus_rule`, `rule_explanation`,
       `processing_time_ms`, `processed_at`.
 
+- **GET `/full_classification_results/{uid}`**  
+  - Looks up a single classification result and joins it to the originating report table based on the `uid` prefix mapping.
+  - Returns a combined JSON payload with `classification` (all classification columns) and `origin` (normalized report details).
+
 ### Database Configuration
 
 The database connection is configured in `database.py` via `DATABASE_URL`. Ensure that:
