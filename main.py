@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from sqlalchemy import text
@@ -92,6 +92,44 @@ async def get_record(uid: str, db: AsyncSession = Depends(get_db)) -> Dict[str, 
         "operator": row.get("operator"),
         "narrative": row.get("narrative"),
     }
+
+
+@app.get("/classification-results")
+async def get_classification_results(db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    """
+    Fetches all classification results from public.classification_results.
+    Returns every column requested in a list of dictionaries.
+    """
+    query = text(
+        """
+        SELECT
+            id,
+            source_uid,
+            bert_results,
+            llm1_category,
+            llm1_confidence,
+            llm1_reasoning,
+            llm2_category,
+            llm2_confidence,
+            llm2_reasoning,
+            llm3_category,
+            llm3_confidence,
+            llm3_reasoning,
+            final_category,
+            final_confidence,
+            routing_decision,
+            consensus_rule,
+            rule_explanation,
+            processing_time_ms,
+            processed_at
+        FROM public.classification_results
+        """
+    )
+
+    result = await db.execute(query)
+    rows = result.mappings().all()
+
+    return [dict(row) for row in rows]
 
 
 if __name__ == "__main__":

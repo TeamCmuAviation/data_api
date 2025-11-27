@@ -12,6 +12,13 @@ This project exposes a simple FastAPI service that queries a PostgreSQL database
   - Returns JSON with:
     - `uid`, `date`, `phase`, `aircraft_type`, `location`, `operator`, `narrative`
 
+- **GET `/classification-results`**  
+  - Returns every row from `public.classification_results`.
+  - Each record includes:
+    - `id`, `source_uid`, `bert_results`, `llm[1-3]_category`, `llm[1-3]_confidence`, `llm[1-3]_reasoning`,
+      `final_category`, `final_confidence`, `routing_decision`, `consensus_rule`, `rule_explanation`,
+      `processing_time_ms`, `processed_at`.
+
 ### Database Configuration
 
 The database connection is configured in `database.py` via `DATABASE_URL`. Ensure that:
