@@ -1,380 +1,78 @@
 from typing import Any, Dict, List
-
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import FastAPI, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from database import get_db
-
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Any, Dict, List, Optional
+import pandas as pd
 
 app = FastAPI()
 
-async def get_airport_coordinates(code: str, db: AsyncSession):
-    """
-    Lookup for airport metadata from airport_location table.
-    Returns:
-    {
-        "lat": float,
-        "lon": float,
-        "city": str | None,
-        "country": str | None,
-        "name": str | None
-    }
-    or None if code is not found.
-    """
 
+@app.get("/airports")
+async def get_airports(codes: List[str], db: AsyncSession = Depends(get_db)):
+    if not codes:
+        return {}
+    codes_lower = [c.lower() for c in codes]
     query = text("""
-        SELECT
-            icao_code,
-            iata_code,
-            name,
-            city,
-            country,
-            lat,
-            lon
+        SELECT icao_code, iata_code, name, city, country, lat, lon
         FROM airport_location
-        WHERE LOWER(icao_code) = LOWER(:code)
-        LIMIT 1;
+        WHERE LOWER(icao_code) = ANY(:codes)
     """)
-
-    result = await db.execute(query, {"code": code})
-    row = result.mappings().first()
-
-    if row is None:
-        return None
-
-    return {
-        "lat": row["lat"],
-        "lon": row["lon"],
-        "city": row["city"],
-        "country": row["country"],
-        "name": row["name"],
-    }
-
-
-@app.get("/airport/{code}")
-async def airport_lookup(code: str, db: AsyncSession = Depends(get_db)):
-    """
-    Returns airport metadata from airport_location table.
-    Example:
-    {
-        "code": "HKJK",
-        "lat": -1.3192,
-        "lon": 36.9278,
-        "city": "Nairobi",
-        "country": "Kenya",
-        "name": "Jomo Kenyatta International Airport"
-    }
-    """
-
-    result = await get_airport_coordinates(code, db)
-
-    if result is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Airport code '{code}' not found."
-        )
-
-    return {
-        "code": code.upper(),
-        **result
-    }
-
-
-@app.get("/record/{uid}")
-async def get_record(uid: str, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
-    """
-    Single GET endpoint that:
-    - Infers the table to query based on the prefix before the first '_' in the UID.
-      * 'asn_'  -> public.asn_scraped_accidents
-      * 'asrs_' -> public.asrs_records
-      * 'pci_'  -> public.pci_scraped_accidents
-    - Returns a normalized JSON object with:
-      uid, date, phase (if available), aircraft_type, location, operator, narrative
-    """
-    prefix = uid.split("_", 1)[0]
-
-    if prefix == "asn":
-        query = text(
-            """
-            SELECT
-                uid,
-                date,
-                phase,
-                aircraft_type,
-                location,
-                operator,
-                narrative
-            FROM public.asn_scraped_accidents
-            WHERE uid = :uid
-            """
-        )
-    elif prefix == "asrs":
-        query = text(
-            """
-            SELECT
-                uid,
-                time AS date,
-                phase,
-                aircraft_type,
-                place AS location,
-                operator,
-                synopsis AS narrative
-            FROM public.asrs_records
-            WHERE uid = :uid
-            """
-        )
-    elif prefix == "pci":
-        query = text(
-            """
-            SELECT
-                uid,
-                date,
-                NULL AS phase,
-                ac_________type AS aircraft_type,
-                location,
-                operator,
-                summary AS narrative
-            FROM public.pci_scraped_accidents
-            WHERE uid = :uid
-            """
-        )
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported UID prefix '{prefix}'. Expected one of: 'asn_', 'asrs_', 'pci_'.",
-        )
-
-    result = await db.execute(query, {"uid": uid})
-    row = result.mappings().first()
-
-    if not row:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Record not found for the provided UID.",
-        )
-
-    # Normalize the response into a standard JSON structure
-    return {
-        "uid": row["uid"],
-        "date": row.get("date"),
-        "phase": row.get("phase"),
-        "aircraft_type": row.get("aircraft_type"),
-        "location": row.get("location"),
-        "operator": row.get("operator"),
-        "narrative": row.get("narrative"),
-    }
+    result = await db.execute(query, {"codes": codes_lower})
+    return {row["icao_code"]: dict(row) for row in result.mappings().all()}
 
 
 @app.get("/classification-results")
 async def get_classification_results(db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
-    """
-    Fetches all classification results from public.classification_results.
-    Returns every column requested in a list of dictionaries.
-    """
-    query = text(
-        """
-        SELECT
-            id,
-            source_uid,
-            bert_results,
-            llm1_category,
-            llm1_confidence,
-            llm1_reasoning,
-            llm2_category,
-            llm2_confidence,
-            llm2_reasoning,
-            llm3_category,
-            llm3_confidence,
-            llm3_reasoning,
-            final_category,
-            final_confidence,
-            routing_decision,
-            consensus_rule,
-            rule_explanation,
-            processing_time_ms,
-            processed_at
-        FROM public.classification_results
-        """
+    query = text("SELECT * FROM public.classification_results")
+    result = await db.execute(query)
+    return [dict(row) for row in result.mappings().all()]
+
+
+@app.post("/full_classification_results_bulk")
+async def get_full_classification_results_bulk(uids: List[str], db: AsyncSession = Depends(get_db)):
+    if not uids:
+        return {"results": {}, "aggregates": {}}
+
+    asn_uids = [uid for uid in uids if uid.startswith("asn_")]
+    asrs_uids = [uid for uid in uids if uid.startswith("asrs_")]
+    pci_uids = [uid for uid in uids if uid.startswith("pci_")]
+
+    results = []
+
+    async def fetch_rows(source_uids, origin_table, columns_map):
+        if not source_uids:
+            return []
+        query = text(f"""
+            SELECT cr.*, {columns_map}
+            FROM public.classification_results cr
+            JOIN public.{origin_table} origin ON origin.uid = cr.source_uid
+            WHERE cr.source_uid = ANY(:uids)
+        """)
+        res = await db.execute(query, {"uids": source_uids})
+        return [dict(row) for row in res.mappings().all()]
+
+    results += await fetch_rows(asn_uids, "asn_scraped_accidents",
+        "origin.uid AS origin_uid, origin.date AS origin_date, origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type, origin.location AS origin_location, origin.operator AS origin_operator, origin.narrative AS origin_narrative"
     )
 
-    result = await db.execute(query)
-    rows = result.mappings().all()
+    results += await fetch_rows(asrs_uids, "asrs_records",
+        "origin.uid AS origin_uid, origin.time AS origin_date, origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type, origin.place AS origin_location, origin.operator AS origin_operator, origin.synopsis AS origin_narrative"
+    )
 
-    return [dict(row) for row in rows]
+    results += await fetch_rows(pci_uids, "pci_scraped_accidents",
+        "origin.uid AS origin_uid, origin.date AS origin_date, NULL AS origin_phase, origin.aircraft_type AS origin_aircraft_type, origin.location AS origin_location, origin.operator AS origin_operator, origin.summary AS origin_narrative"
+    )
 
+    df = pd.DataFrame(results)
+    aggregates = {}
+    if not df.empty:
+        aggregates = {
+            "total_incidents": len(df),
+            "unique_operators": df.get("origin_operator", pd.Series()).nunique(),
+            "unique_aircraft_types": df.get("origin_aircraft_type", pd.Series()).nunique(),
+            "phase_counts": df.get("origin_phase", pd.Series()).value_counts().to_dict(),
+            "operator_counts": df.get("origin_operator", pd.Series()).value_counts().to_dict()
+        }
 
-@app.get("/full_classification_results/{uid}")
-async def get_full_classification_results(
-    uid: str, db: AsyncSession = Depends(get_db)
-) -> Dict[str, Any]:
-    """
-    Returns a single classification result joined with its originating report table,
-    determined by the prefix portion of the UID.
-    """
-    prefix = uid.split("_", 1)[0]
-
-    if prefix == "asn":
-        query = text(
-            """
-            SELECT
-                cr.id,
-                cr.source_uid,
-                cr.bert_results,
-                cr.llm1_category,
-                cr.llm1_confidence,
-                cr.llm1_reasoning,
-                cr.llm2_category,
-                cr.llm2_confidence,
-                cr.llm2_reasoning,
-                cr.llm3_category,
-                cr.llm3_confidence,
-                cr.llm3_reasoning,
-                cr.final_category,
-                cr.final_confidence,
-                cr.routing_decision,
-                cr.consensus_rule,
-                cr.rule_explanation,
-                cr.processing_time_ms,
-                cr.processed_at,
-                origin.uid AS origin_uid,
-                origin.date AS origin_date,
-                origin.phase AS origin_phase,
-                origin.aircraft_type AS origin_aircraft_type,
-                origin.location AS origin_location,
-                origin.operator AS origin_operator,
-                origin.narrative AS origin_narrative
-            FROM public.classification_results cr
-            JOIN public.asn_scraped_accidents origin ON origin.uid = cr.source_uid
-            WHERE cr.source_uid = :uid
-            """
-        )
-    elif prefix == "asrs":
-        query = text(
-            """
-            SELECT
-                cr.id,
-                cr.source_uid,
-                cr.bert_results,
-                cr.llm1_category,
-                cr.llm1_confidence,
-                cr.llm1_reasoning,
-                cr.llm2_category,
-                cr.llm2_confidence,
-                cr.llm2_reasoning,
-                cr.llm3_category,
-                cr.llm3_confidence,
-                cr.llm3_reasoning,
-                cr.final_category,
-                cr.final_confidence,
-                cr.routing_decision,
-                cr.consensus_rule,
-                cr.rule_explanation,
-                cr.processing_time_ms,
-                cr.processed_at,
-                origin.uid AS origin_uid,
-                origin.time AS origin_date,
-                origin.phase AS origin_phase,
-                origin.aircraft_type AS origin_aircraft_type,
-                origin.place AS origin_location,
-                origin.operator AS origin_operator,
-                origin.synopsis AS origin_narrative
-            FROM public.classification_results cr
-            JOIN public.asrs_records origin ON origin.uid = cr.source_uid
-            WHERE cr.source_uid = :uid
-            """
-        )
-    elif prefix == "pci":
-        query = text(
-            """
-            SELECT
-                cr.id,
-                cr.source_uid,
-                cr.bert_results,
-                cr.llm1_category,
-                cr.llm1_confidence,
-                cr.llm1_reasoning,
-                cr.llm2_category,
-                cr.llm2_confidence,
-                cr.llm2_reasoning,
-                cr.llm3_category,
-                cr.llm3_confidence,
-                cr.llm3_reasoning,
-                cr.final_category,
-                cr.final_confidence,
-                cr.routing_decision,
-                cr.consensus_rule,
-                cr.rule_explanation,
-                cr.processing_time_ms,
-                cr.processed_at,
-                origin.uid AS origin_uid,
-                origin.date AS origin_date,
-                NULL AS origin_phase,
-                origin.ac_________type AS origin_aircraft_type,
-                origin.location AS origin_location,
-                origin.operator AS origin_operator,
-                origin.summary AS origin_narrative
-            FROM public.classification_results cr
-            JOIN public.pci_scraped_accidents origin ON origin.uid = cr.source_uid
-            WHERE cr.source_uid = :uid
-            """
-        )
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported UID prefix '{prefix}'. Expected one of: 'asn_', 'asrs_', 'pci_'.",
-        )
-
-    result = await db.execute(query, {"uid": uid})
-    row = result.mappings().first()
-
-    if not row:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No classification result found for the provided UID.",
-        )
-
-    classification_data = {
-        "id": row["id"],
-        "source_uid": row["source_uid"],
-        "bert_results": row["bert_results"],
-        "llm1_category": row["llm1_category"],
-        "llm1_confidence": row["llm1_confidence"],
-        "llm1_reasoning": row["llm1_reasoning"],
-        "llm2_category": row["llm2_category"],
-        "llm2_confidence": row["llm2_confidence"],
-        "llm2_reasoning": row["llm2_reasoning"],
-        "llm3_category": row["llm3_category"],
-        "llm3_confidence": row["llm3_confidence"],
-        "llm3_reasoning": row["llm3_reasoning"],
-        "final_category": row["final_category"],
-        "final_confidence": row["final_confidence"],
-        "routing_decision": row["routing_decision"],
-        "consensus_rule": row["consensus_rule"],
-        "rule_explanation": row["rule_explanation"],
-        "processing_time_ms": row["processing_time_ms"],
-        "processed_at": row["processed_at"],
-    }
-
-    origin_data = {
-        "uid": row["origin_uid"],
-        "date": row.get("origin_date"),
-        "phase": row.get("origin_phase"),
-        "aircraft_type": row.get("origin_aircraft_type"),
-        "location": row.get("origin_location"),
-        "operator": row.get("origin_operator"),
-        "narrative": row.get("origin_narrative"),
-    }
-
-    return {"classification": classification_data, "origin": origin_data}
-
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
-
+    return {"results": {row["source_uid"]: row for row in results}, "aggregates": aggregates}
