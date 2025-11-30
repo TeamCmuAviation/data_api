@@ -10,12 +10,16 @@ import streamlit as st
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from typing import Optional, Dict, Any
+import httpx  # async-capable HTTP client
+import asyncio
+
 # ============================================================================
 # Configuration
 # ============================================================================
 
 BASE_API_URL = "http://localhost:8000"  # Update this to your FastAPI server URL
-LOGO_PATH = ""  # Path to logo image (e.g., "config/logo.png") or empty string
+LOGO_PATH = "config/logo.jpg"  # Path to logo image (e.g., "config/logo.png") or empty string
 
 # CMU Tartan-inspired color palette
 COLORS = {
@@ -42,7 +46,8 @@ SEVERITY_MAPPING = {
 
 def get_airport_coordinates(code: str) -> Optional[Dict[str, Any]]:
     """
-    Given an ICAO or IATA airport code string, return a dict with:
+    Given an ICAO or IATA airport code string, fetch airport metadata from the FastAPI endpoint.
+    Returns:
     {
         "lat": float,
         "lon": float,
@@ -51,23 +56,27 @@ def get_airport_coordinates(code: str) -> Optional[Dict[str, Any]]:
         "name": str | None
     }
     or None if unknown.
-    
-    For now, implement this as a stub that returns None, but structure it so it is easy to later plug in
-    a real geocoding or lookup (e.g. from a DB, API, or local file).
     """
-    # TODO: implement real lookup
-    # Example structure for future implementation:
-    # if code in airport_database:
-    #     return {
-    #         "lat": airport_database[code]["latitude"],
-    #         "lon": airport_database[code]["longitude"],
-    #         "city": airport_database[code].get("city"),
-    #         "country": airport_database[code].get("country"),
-    #         "name": airport_database[code].get("name"),
-    #     }
-    return None
+    url = f"{BASE_API_URL}/airport/{code}"
 
-
+    try:
+        # Using synchronous HTTP call for Streamlit
+        response = httpx.get(url, timeout=5.0)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "lat": data.get("lat"),
+                "lon": data.get("lon"),
+                "city": data.get("city"),
+                "country": data.get("country"),
+                "name": data.get("name"),
+            }
+        else:
+            return None
+    except Exception as e:
+        st.error(f"Error fetching airport data: {e}")
+        return None
+    
 # ============================================================================
 # Data Fetching Functions
 # ============================================================================

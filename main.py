@@ -6,7 +6,82 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any, Dict, List, Optional
+
 app = FastAPI()
+
+async def get_airport_coordinates(code: str, db: AsyncSession):
+    """
+    Lookup for airport metadata from airport_location table.
+    Returns:
+    {
+        "lat": float,
+        "lon": float,
+        "city": str | None,
+        "country": str | None,
+        "name": str | None
+    }
+    or None if code is not found.
+    """
+
+    query = text("""
+        SELECT
+            icao_code,
+            iata_code,
+            name,
+            city,
+            country,
+            lat,
+            lon
+        FROM airport_location
+        WHERE LOWER(icao_code) = LOWER(:code)
+        LIMIT 1;
+    """)
+
+    result = await db.execute(query, {"code": code})
+    row = result.mappings().first()
+
+    if row is None:
+        return None
+
+    return {
+        "lat": row["lat"],
+        "lon": row["lon"],
+        "city": row["city"],
+        "country": row["country"],
+        "name": row["name"],
+    }
+
+
+@app.get("/airport/{code}")
+async def airport_lookup(code: str, db: AsyncSession = Depends(get_db)):
+    """
+    Returns airport metadata from airport_location table.
+    Example:
+    {
+        "code": "HKJK",
+        "lat": -1.3192,
+        "lon": 36.9278,
+        "city": "Nairobi",
+        "country": "Kenya",
+        "name": "Jomo Kenyatta International Airport"
+    }
+    """
+
+    result = await get_airport_coordinates(code, db)
+
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Airport code '{code}' not found."
+        )
+
+    return {
+        "code": code.upper(),
+        **result
+    }
 
 
 @app.get("/record/{uid}")
