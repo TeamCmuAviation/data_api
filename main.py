@@ -1,4 +1,5 @@
 from typing import Any, Dict, List
+import pydantic
 from fastapi import FastAPI, Depends
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,3 +77,55 @@ async def get_full_classification_results_bulk(uids: List[str], db: AsyncSession
         }
 
     return {"results": {row["source_uid"]: row for row in results}, "aggregates": aggregates}
+
+
+# -------------------------------------------------------------------
+# Human Evaluation Endpoint
+# -------------------------------------------------------------------
+
+class HumanEvaluationRequest(pydantic.BaseModel):
+    classification_result_id: int
+    evaluator_id: str
+    human_category: str
+    human_confidence: float
+    human_reasoning: str
+
+@app.post("/human_evaluation/submit")
+async def submit_human_evaluation(
+    eval_req: HumanEvaluationRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Inserts a record into public.human_evaluation and marks the assignment as complete.
+    """
+    # 1. Insert into human_evaluation
+    insert_query = text("""
+        INSERT INTO public.human_evaluation 
+        (classification_result_id, evaluator_id, human_category, human_confidence, human_reasoning, created_at)
+        VALUES 
+        (:c_id, :e_id, :h_cat, :h_conf, :h_reason, NOW())
+    """)
+    
+    await db.execute(insert_query, {
+        "c_id": eval_req.classification_result_id,
+        "e_id": eval_req.evaluator_id,
+        "h_cat": eval_req.human_category,
+        "h_conf": eval_req.human_confidence,
+        "h_reason": eval_req.human_reasoning
+    })
+
+    # 2. Update evaluation_assignments to mark as complete
+    update_query = text("""
+        UPDATE public.evaluation_assignments
+        SET is_complete = TRUE, completed_at = NOW()
+        WHERE classification_result_id = :c_id AND evaluator_id = :e_id
+    """)
+
+    await db.execute(update_query, {
+        "c_id": eval_req.classification_result_id,
+        "e_id": eval_req.evaluator_id
+    })
+
+    await db.commit()
+
+    return {"status": "success", "message": "Evaluation submitted"}

@@ -22,6 +22,16 @@ This project exposes a simple FastAPI service that queries a PostgreSQL database
 - **GET `/full_classification_results/{uid}`**  
   - Looks up a single classification result and joins it to the originating report table based on the `uid` prefix mapping.
   - Returns a combined JSON payload with `classification` (all classification columns) and `origin` (normalized report details).
+ 
+- **POST `/human_evaluation/submit`**
+  - Submits a human evaluation for a classification result.
+  - Expects a JSON body with:
+    - `classification_result_id` (int)
+    - `evaluator_id` (str)
+    - `human_category` (str)
+    - `human_confidence` (float)
+    - `human_reasoning` (str)
+  - Inserts into `public.human_evaluation` and marks the assignment as complete.
 
 ### Database Configuration
 
