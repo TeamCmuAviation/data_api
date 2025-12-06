@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CMU-Africa Classification Validator</title>
+    <!-- Simple Select2 CSS for searchable dropdowns if needed later -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <style>
+        :root {
+            --cmu-red: #C41230;
+            --cmu-black: #000000;
+            --cmu-gray: #666666;
+            --cmu-white: #FFFFFF;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            color: var(--cmu-black);
+        }
+
+        /* CMU Red Header */
+        header {
+            background-color: var(--cmu-red);
+            color: var(--cmu-white);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 4px solid var(--cmu-black);
+            /* Tartan-ish pattern overlay influence */
+            background-image: repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(0,0,0,0.1) 10px, rgba(0,0,0,0.1) 20px);
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            background: var(--cmu-white);
+            padding: 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-left: 10px solid var(--cmu-black);
+            border-right: 10px solid var(--cmu-black);
+        }
+
+        /* Geometric side accents */
+        .container::before {
+            content: "";
+            display: block;
+            height: 4px;
+            background: repeating-linear-gradient(90deg, var(--cmu-red), var(--cmu-red) 10px, var(--cmu-black) 10px, var(--cmu-black) 20px);
+            margin-bottom: 20px;
+        }
+
+        .btn {
+            display: inline-block;
+            background-color: var(--cmu-red);
+            color: var(--cmu-white);
+            padding: 10px 20px;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 1rem;
+            transition: background-color 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #900d23;
+        }
+
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-left: 5px solid;
+            background-color: #eee;
+        }
+        .alert-success {
+            border-color: #28a745;
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .alert-error {
+            border-color: var(--cmu-red);
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+
+        /* Form Styles */
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: var(--cmu-black);
+        }
+        input[type="text"], input[type="number"], textarea, select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid var(--cmu-gray);
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 1rem;
+        }
+        input:focus, textarea:focus, select:focus {
+            border-color: var(--cmu-red);
+            outline: none;
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<header>
+    <h1>CMU-Africa Classification Validator</h1>
+</header>
+
+<div class="container">
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    {% block content %}
+    {% endblock %}
+</div>
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+{% block extra_js %}{% endblock %}
+
+</body>
+</html>
