@@ -35,9 +35,13 @@ async def get_airports(
 
 
 @app.get("/classification-results")
-async def get_classification_results(db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
-    query = text("SELECT * FROM classification_results")
-    result = await db.execute(query)
+async def get_classification_results(
+    db: AsyncSession = Depends(get_db), skip: int = 0, limit: int = 100
+) -> List[Dict[str, Any]]:
+    query = text(
+        "SELECT * FROM classification_results ORDER BY id OFFSET :skip LIMIT :limit"
+    )
+    result = await db.execute(query, {"skip": skip, "limit": limit})
     return [dict(row) for row in result.mappings().all()]
 
 
@@ -47,68 +51,62 @@ async def get_full_classification_results_bulk(
 ):
     if not uids:
         return {"results": {}, "aggregates": {}}
+    
+    # This single, powerful query replaces the three separate queries.
+    # It uses UNION ALL to combine results from different source tables.
+    # NOTE: This query is compatible with both PostgreSQL and SQLite.
+    # The aggregation is still done in Python to maintain this compatibility.
+    query = text("""
+        SELECT
+            cr.*,
+            origin.uid AS origin_uid, origin.date AS origin_date,
+            origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type,
+            origin.location AS origin_location, origin.operator AS origin_operator,
+            origin.narrative AS origin_narrative
+        FROM classification_results cr
+        JOIN asn_scraped_accidents origin ON origin.uid = cr.source_uid
+        WHERE cr.source_uid IN :uids
+    
+        UNION ALL
+    
+        SELECT
+            cr.*,
+            origin.uid AS origin_uid, origin.time AS origin_date,
+            origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type,
+            origin.place AS origin_location, origin.operator AS origin_operator,
+            origin.synopsis AS origin_narrative
+        FROM classification_results cr
+        JOIN asrs_records origin ON origin.uid = cr.source_uid
+        WHERE cr.source_uid IN :uids
+    
+        UNION ALL
+    
+        SELECT
+            cr.*,
+            origin.uid AS origin_uid, origin.date AS origin_date,
+            NULL AS origin_phase, origin.aircraft_type AS origin_aircraft_type,
+            origin.location AS origin_location, origin.operator AS origin_operator,
+            origin.summary AS origin_narrative
+        FROM classification_results cr
+        JOIN pci_scraped_accidents origin ON origin.uid = cr.source_uid
+        WHERE cr.source_uid IN :uids
+    """)
 
-    asn_uids = [uid for uid in uids if uid.startswith("asn_")]
-    asrs_uids = [uid for uid in uids if uid.startswith("asrs_")]
-    pci_uids = [uid for uid in uids if uid.startswith("pci_")]
+    result = await db.execute(query, {"uids": tuple(uids)})
+    results = [dict(row) for row in result.mappings().all()]
 
-    results: List[Dict[str, Any]] = []
-
-    async def fetch_rows(source_uids, origin_table, columns_map):
-        if not source_uids:
-            return []
-
-        query = text(
-            f"""
-            SELECT cr.*, {columns_map}
-            FROM classification_results cr
-            JOIN {origin_table} origin ON origin.uid = cr.source_uid
-            WHERE cr.source_uid IN :uids
-            """
-        ).bindparams(bindparam("uids", expanding=True))
-
-        res = await db.execute(query, {"uids": source_uids})
-        return [dict(row) for row in res.mappings().all()]
-
-    results += await fetch_rows(
-        asn_uids,
-        "asn_scraped_accidents",
-        "origin.uid AS origin_uid, origin.date AS origin_date, "
-        "origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type, "
-        "origin.location AS origin_location, origin.operator AS origin_operator, "
-        "origin.narrative AS origin_narrative",
-    )
-
-    results += await fetch_rows(
-        asrs_uids,
-        "asrs_records",
-        "origin.uid AS origin_uid, origin.time AS origin_date, "
-        "origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type, "
-        "origin.place AS origin_location, origin.operator AS origin_operator, "
-        "origin.synopsis AS origin_narrative",
-    )
-
-    results += await fetch_rows(
-        pci_uids,
-        "pci_scraped_accidents",
-        "origin.uid AS origin_uid, origin.date AS origin_date, "
-        "NULL AS origin_phase, origin.aircraft_type AS origin_aircraft_type, "
-        "origin.location AS origin_location, origin.operator AS origin_operator, "
-        "origin.summary AS origin_narrative",
-    )
-
-    df = pd.DataFrame(results)
-    aggregates: Dict[str, Any] = {}
-
-    if not df.empty:
+    # Aggregation is still performed in pandas to maintain compatibility with SQLite tests
+    aggregates = {}
+    if results:
+        df = pd.DataFrame(results)
         aggregates = {
             "total_incidents": len(df),
-            "unique_operators": df.get("origin_operator", pd.Series()).nunique(),
-            "unique_aircraft_types": df.get("origin_aircraft_type", pd.Series()).nunique(),
-            "phase_counts": df.get("origin_phase", pd.Series()).value_counts().to_dict(),
-            "operator_counts": df.get("origin_operator", pd.Series()).value_counts().to_dict(),
+            "unique_operators": df["origin_operator"].nunique(),
+            "unique_aircraft_types": df["origin_aircraft_type"].nunique(),
+            "phase_counts": df["origin_phase"].value_counts().to_dict(),
+            "operator_counts": df["origin_operator"].value_counts().to_dict(),
         }
-
+        
     return {"results": {row["source_uid"]: row for row in results}, "aggregates": aggregates}
 
 

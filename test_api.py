@@ -230,7 +230,7 @@ async def test_get_classification_results(client):
     response = await client.get("/classification-results")
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 2
+    assert len(body) == 2  # The test DB has 2 records, which is less than the default limit of 100
     source_uids = {row["source_uid"] for row in body}
     assert {"asrs_1", "asn_1"} <= source_uids
 

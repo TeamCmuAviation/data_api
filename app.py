@@ -6,7 +6,7 @@ from typing import List, Dict
 # -----------------------------
 # Config
 # -----------------------------
-API_URL = "http://127.0.0.1:8000"  # FastAPI server
+API_URL = "http://127.0.0.1:58510"  # FastAPI server
 
 st.set_page_config(page_title="Aviation Dashboard", layout="wide")
 

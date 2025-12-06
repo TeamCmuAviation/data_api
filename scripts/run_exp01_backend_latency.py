@@ -2,7 +2,7 @@ import time, requests, json
 from utils import ensure_dir, write_csv, save_plot, log
 import numpy as np
 
-API = "http://127.0.0.1:8000/full_classification_results_bulk"
+API = "http://127.0.0.1:58510/full_classification_results_bulk"
 UIDFILE = "uids_for_testing.json"       # create a JSON file with 10k UIDs
 
 SIZES = [10, 100, 1000, 10000]
