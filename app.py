@@ -30,12 +30,23 @@ def load_classification_data(uids: List[str]):
 # -----------------------------
 @st.cache_data(show_spinner=True)
 def load_all_uids() -> List[str]:
-    response = requests.get(f"{API_URL}/classification-results")
-    if response.status_code != 200:
-        st.error("Failed to fetch UIDs")
-        return []
-    data = response.json()
-    return [row["source_uid"] for row in data]
+    """Fetches all UIDs by making paginated requests to the API."""
+    all_uids = []
+    skip = 0
+    limit = 500  # Fetch in chunks of 500
+    while True:
+        response = requests.get(
+            f"{API_URL}/classification-results", params={"skip": skip, "limit": limit}
+        )
+        if response.status_code != 200:
+            st.error(f"Failed to fetch UIDs on page starting at {skip}")
+            return []
+        data = response.json()
+        if not data:
+            break  # No more data to fetch
+        all_uids.extend([row["source_uid"] for row in data])
+        skip += limit
+    return all_uids
 
 
 # -----------------------------

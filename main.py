@@ -38,9 +38,18 @@ async def get_airports(
 async def get_classification_results(
     db: AsyncSession = Depends(get_db), skip: int = 0, limit: int = 100
 ) -> List[Dict[str, Any]]:
-    query = text(
-        "SELECT * FROM classification_results ORDER BY id OFFSET :skip LIMIT :limit"
-    )
+    query = text("""
+        SELECT
+            cr.*,
+            COALESCE(ea.is_complete, FALSE) AS is_complete
+        FROM
+            classification_results cr
+        LEFT JOIN
+            evaluation_assignments ea ON cr.id = ea.classification_result_id
+        ORDER BY
+            cr.id
+        OFFSET :skip LIMIT :limit
+    """)
     result = await db.execute(query, {"skip": skip, "limit": limit})
     return [dict(row) for row in result.mappings().all()]
 
@@ -90,7 +99,7 @@ async def get_full_classification_results_bulk(
         FROM classification_results cr
         JOIN pci_scraped_accidents origin ON origin.uid = cr.source_uid
         WHERE cr.source_uid IN :uids
-    """)
+    """).bindparams(bindparam("uids", expanding=True))
 
     result = await db.execute(query, {"uids": tuple(uids)})
     results = [dict(row) for row in result.mappings().all()]
@@ -131,7 +140,7 @@ async def submit_human_evaluation(
     Inserts a record into public.human_evaluation and marks the assignment as complete.
     """
 
-    now_ts = datetime.utcnow().isoformat()
+    now_ts = datetime.utcnow()
 
     insert_query = text(
         """
