@@ -36,21 +36,32 @@ async def get_airports(
 
 @app.get("/classification-results")
 async def get_classification_results(
-    db: AsyncSession = Depends(get_db), skip: int = 0, limit: int = 100
+    db: AsyncSession = Depends(get_db),
+    skip: int = 0,
+    limit: int = 100,
+    evaluator_id: str | None = Query(default=None),
 ) -> List[Dict[str, Any]]:
-    query = text("""
+    params: Dict[str, Any] = {"skip": skip, "limit": limit}
+    where_clauses = []
+    if evaluator_id:
+        where_clauses.append("ea.evaluator_id = :evaluator_id")
+        params["evaluator_id"] = evaluator_id
+
+    query_str = """
         SELECT
             cr.*,
-            COALESCE(ea.is_complete, FALSE) AS is_complete
+            COALESCE(ea.is_complete, FALSE) AS is_complete,
+            ea.evaluator_id
         FROM
             classification_results cr
         LEFT JOIN
             evaluation_assignments ea ON cr.id = ea.classification_result_id
-        ORDER BY
-            cr.id
-        OFFSET :skip LIMIT :limit
-    """)
-    result = await db.execute(query, {"skip": skip, "limit": limit})
+    """
+    if where_clauses:
+        query_str += " WHERE " + " AND ".join(where_clauses)
+
+    query_str += " ORDER BY cr.id OFFSET :skip LIMIT :limit"
+    result = await db.execute(text(query_str), params)
     return [dict(row) for row in result.mappings().all()]
 
 
