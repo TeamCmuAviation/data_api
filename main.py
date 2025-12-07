@@ -45,7 +45,7 @@ async def get_classification_results(
     where_clauses = []
     if evaluator_id:
         where_clauses.append("ea.evaluator_id = :evaluator_id")
-        params["evaluator_id"] = evaluator_id
+        params["evaluator_id"] = str.upper(evaluator_id) 
 
     query_str = """
         SELECT
