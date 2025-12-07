@@ -156,7 +156,7 @@ async def submit_human_evaluation(
     try:
         # Check if the assignment exists and is not complete
         assignment_check_query = text("""
-            SELECT id FROM evaluation_assignments -- lock the row for update
+            SELECT assignment_id FROM evaluation_assignments -- lock the row for update
             WHERE classification_result_id = :c_id
               AND evaluator_id = :e_id
               AND is_complete = FALSE
