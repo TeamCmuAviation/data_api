@@ -2,112 +2,109 @@
 
 This project exposes a simple FastAPI service that queries a PostgreSQL database for aviation-related records based on a `uid`. The table is inferred from the prefix before the first `_` in the `uid` (e.g. `asn_`, `asrs_`, `pci_`).
 
-### Endpoints
+## API Endpoints
 
 ---
 
-### API Specification
+### 1. Get Airport Information
 
-#### **GET `/airports`**
-- **Description**: Retrieves detailed information for a list of airports based on their ICAO codes.
-- **Query Parameters**:
-  - `codes` (List[str]): A list of ICAO airport codes to fetch. Example: `?codes=KJFK&codes=EGLL`
-- **Success Response (200 OK)**:
-  - **Content-Type**: `application/json`
-  - **Body**: A dictionary where keys are the requested ICAO codes and values are objects containing airport details.
-  ```json
-  {
-    "KJFK": {
-      "icao_code": "KJFK",
-      "iata_code": "JFK",
-      "name": "John F. Kennedy International Airport",
-      "city": "New York",
-      "country": "United States",
-      "lat": 40.639801,
-      "lon": -73.7789
-    }
-  }
-  ```
+Retrieves details for a list of airports based on their ICAO codes.
 
-#### **GET `/classification-results`**
-- **Description**: Fetches all records from the `classification_results` table.
-- **Query Parameters**: None.
-- **Success Response (200 OK)**:
-  - **Content-Type**: `application/json`
-  - **Body**: A list of classification result objects.
-  ```json
-  [
+*   **Endpoint:** `GET /airports`
+*   **Query Parameters:**
+    *   `codes` (list[str]): A list of ICAO airport codes (e.g., `KJFK`, `EGLL`).
+*   **Success Response (200):**
+    *   Returns a dictionary where keys are the ICAO codes and values are objects containing airport details.
+
+    **Example Request:**
+    ```
+    GET /airports?codes=KJFK&codes=EGLL
+    ```
+
+    **Example Response:**
+    ```json
     {
-      "id": 1,
-      "source_uid": "asrs_12345",
-      "bert_results": "...",
-      "llm1_category": "...",
-      "final_category": "...",
-      "processed_at": "2023-10-27T10:00:00Z"
-    }
-  ]
-  ```
-
-#### **POST `/full_classification_results_bulk`**
-- **Description**: Retrieves full, joined classification results for a list of UIDs. This endpoint combines data from `classification_results` with the original source report (e.g., `asrs_records`). It also provides aggregated statistics for the returned data.
-- **Request Body**:
-  - **Content-Type**: `application/json`
-  - **Body**: A list of `source_uid` strings.
-  ```json
-  ["asrs_12345", "asn_67890"]
-  ```
-- **Success Response (200 OK)**:
-  - **Content-Type**: `application/json`
-  - **Body**: An object containing `results` (a dictionary of the full records keyed by `source_uid`) and `aggregates` (summary statistics).
-  ```json
-  {
-    "results": {
-      "asrs_12345": {
-        "id": 1,
-        "source_uid": "asrs_12345",
-        "final_category": "...",
-        "origin_uid": "asrs_12345",
-        "origin_date": "...",
-        "origin_phase": "...",
-        "origin_aircraft_type": "...",
-        "origin_location": "...",
-        "origin_operator": "...",
-        "origin_narrative": "..."
+      "KJFK": {
+        "icao_code": "KJFK",
+        "iata_code": "JFK",
+        "name": "John F Kennedy International Airport",
+        "city": "New York",
+        "country": "USA",
+        "lat": 40.639801,
+        "lon": -73.7789
+      },
+      "EGLL": {
+        "icao_code": "EGLL",
+        "iata_code": "LHR",
+        "name": "London Heathrow Airport",
+        "city": "London",
+        "country": "GB",
+        "lat": 51.4706,
+        "lon": -0.461941
       }
-    },
-    "aggregates": {
-      "total_incidents": 120,
-      "unique_operators": 45,
-      "unique_aircraft_types": 88,
-      "phase_counts": { "Cruise": 50, "Landing": 30 },
-      "operator_counts": { "Operator A": 25, "Operator B": 15 }
     }
-  }
-  ```
+    ```
 
-#### **POST `/human_evaluation/submit`**
-- **Description**: Submits a human-in-the-loop evaluation for a specific classification result. This action inserts a record into the `human_evaluation` table and marks the corresponding task in `evaluation_assignments` as complete.
-- **Request Body**:
-  - **Content-Type**: `application/json`
-  - **Body**: A JSON object containing the evaluation details.
-  ```json
-  {
-    "classification_result_id": 101,
-    "evaluator_id": "john.doe",
-    "human_category": "Human Verified Category",
-    "human_confidence": 0.95,
-    "human_reasoning": "The narrative clearly indicates pilot error during the landing phase."
-  }
-  ```
-- **Success Response (200 OK)**:
-  - **Content-Type**: `application/json`
-  - **Body**: A confirmation message.
-  ```json
-  {
-    "status": "success",
-    "message": "Evaluation submitted"
-  }
-  ```
+---
+
+### 2. Get Classification Results
+
+Fetches a paginated list of classification results. Can be filtered by the evaluator assigned to the result.
+
+*   **Endpoint:** `GET /classification-results`
+*   **Query Parameters:**
+    *   `skip` (int, optional, default: 0): Number of records to skip for pagination.
+    *   `limit` (int, optional, default: 100): Maximum number of records to return.
+    *   `evaluator_id` (str, optional): Filter results by the ID of the evaluator.
+*   **Success Response (200):**
+    *   Returns a list of classification result objects.
+
+---
+
+### 3. Get Full Classification Results in Bulk
+
+Retrieves comprehensive details for multiple classification results, including original source data and aggregate statistics.
+
+*   **Endpoint:** `POST /full_classification_results_bulk`
+*   **Request Body:**
+    *   A JSON list of source UIDs.
+    ```json
+    [ "uid1", "uid2" ]
+    ```
+*   **Success Response (200):**
+    *   Returns an object containing:
+        *   `results`: A dictionary of the full result data, keyed by `source_uid`.
+        *   `aggregates`: An object with aggregate statistics like total incidents, unique operators, etc.
+
+---
+
+### 4. Submit Human Evaluation
+
+Submits a human-provided evaluation for a specific classification result and marks the corresponding evaluation assignment as complete.
+
+*   **Endpoint:** `POST /human_evaluation/submit`
+*   **Request Body:**
+    *   A JSON object with the following fields:
+        *   `classification_result_id` (int): The ID of the classification result being evaluated.
+        *   `evaluator_id` (str): The ID of the person performing the evaluation.
+        *   `human_category` (str): The category assigned by the human evaluator.
+        *   `human_confidence` (float): The confidence level of the human evaluator.
+        *   `human_reasoning` (str): The reasoning behind the human evaluation.
+*   **Success Response (200):**
+    ```json
+    {
+      "status": "success",
+      "message": "Evaluation submitted"
+    }
+    ```
+*   **Error Response (200):**
+    *   If the assignment is not found or already completed.
+    ```json
+    {
+      "status": "error",
+      "message": "Assignment not found or already complete."
+    }
+    ```
 
 ### Database Configuration
 
