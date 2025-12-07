@@ -134,7 +134,7 @@ class HumanEvaluationRequest(pydantic.BaseModel):
 @app.post("/human_evaluation/submit")
 async def submit_human_evaluation(
     eval_req: HumanEvaluationRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Inserts a record into public.human_evaluation and marks the assignment as complete.
@@ -142,46 +142,55 @@ async def submit_human_evaluation(
 
     now_ts = datetime.utcnow()
 
-    insert_query = text(
-        """
-        INSERT INTO human_evaluation
-        (classification_result_id, evaluator_id, human_category,
-         human_confidence, human_reasoning, created_at)
-        VALUES
-        (:c_id, :e_id, :h_cat, :h_conf, :h_reason, :created_at)
-        """
-    )
+    try:
+        # Check if the assignment exists and is not complete
+        assignment_check_query = text("""
+            SELECT id FROM evaluation_assignments
+            WHERE classification_result_id = :c_id
+              AND evaluator_id = :e_id
+              AND is_complete = FALSE
+        """)
+        result = await db.execute(assignment_check_query, {"c_id": eval_req.classification_result_id, "e_id": eval_req.evaluator_id})
+        if result.first() is None:
+            return {"status": "error", "message": "Assignment not found or already complete."}
 
-    await db.execute(
-        insert_query,
-        {
-            "c_id": eval_req.classification_result_id,
-            "e_id": eval_req.evaluator_id,
-            "h_cat": eval_req.human_category,
-            "h_conf": eval_req.human_confidence,
-            "h_reason": eval_req.human_reasoning,
-            "created_at": now_ts,
-        },
-    )
+        insert_query = text(
+            """
+            INSERT INTO human_evaluation
+            (classification_result_id, evaluator_id, human_category,
+             human_confidence, human_reasoning, created_at)
+            VALUES
+            (:c_id, :e_id, :h_cat, :h_conf, :h_reason, :created_at)
+            """
+        )
+        await db.execute(
+            insert_query,
+            {
+                "c_id": eval_req.classification_result_id,
+                "e_id": eval_req.evaluator_id,
+                "h_cat": eval_req.human_category,
+                "h_conf": eval_req.human_confidence,
+                "h_reason": eval_req.human_reasoning,
+                "created_at": now_ts,
+            },
+        )
 
-    update_query = text(
-        """
-        UPDATE evaluation_assignments
-        SET is_complete = TRUE, completed_at = :completed_at
-        WHERE classification_result_id = :c_id AND evaluator_id = :e_id
-        """
-    )
+        update_query = text(
+            """
+            UPDATE evaluation_assignments
+            SET is_complete = TRUE, completed_at = :completed_at
+            WHERE classification_result_id = :c_id AND evaluator_id = :e_id
+            """
+        )
+        await db.execute(
+            update_query,
+            {"c_id": eval_req.classification_result_id, "e_id": eval_req.evaluator_id, "completed_at": now_ts},
+        )
 
-    await db.execute(
-        update_query,
-        {
-            "c_id": eval_req.classification_result_id,
-            "e_id": eval_req.evaluator_id,
-            "completed_at": now_ts,
-        },
-    )
-
-    await db.commit()
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
 
     return {"status": "success", "message": "Evaluation submitted"}
 
