@@ -1,6 +1,10 @@
 fastapi
 uvicorn[standard]
-SQLAlchemy
-psycopg2-binary
-
-
+sqlalchemy[asyncio]
+asyncpg
+pandas
+pydantic
+aiosqlite
+pytest
+pytest-asyncio
+httpx

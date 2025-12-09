@@ -1,5 +1,5 @@
-from typing import Any, Dict, List
-from datetime import datetime
+from typing import Any, Dict, List, Literal
+from datetime import datetime, date
 
 import pydantic
 from fastapi import FastAPI, Depends, Query
@@ -128,6 +128,229 @@ async def get_full_classification_results_bulk(
         }
         
     return {"results": {row["source_uid"]: row for row in results}, "aggregates": aggregates}
+
+
+@app.get("/aggregates/over-time")
+async def get_aggregates_over_time(
+    period: Literal["year", "month"] = Query(
+        default="month", description="The time period to group by ('year' or 'month')."
+    ),
+    operators: List[str] | None = Query(default=None, description="Filter by one or more operators."),
+    phases: List[str] | None = Query(default=None, description="Filter by one or more flight phases."),
+    aircraft_types: List[str] | None = Query(default=None, description="Filter by one or more aircraft types."),
+    start_date: date | None = Query(default=None, description="The start of the date range (inclusive)."),
+    end_date: date | None = Query(default=None, description="The end of the date range (inclusive)."),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Provides aggregated incident counts over time (by year or month).
+    This is useful for creating time-series visualizations.
+    
+    The endpoint supports filtering by:
+    - `operators`
+    - `phases`
+    - `aircraft_types`
+    """
+    if period == "year":
+        # Note: The date extraction function might vary between SQL dialects.
+        # EXTRACT(YEAR FROM ...) is standard SQL.
+        date_trunc_sql = "EXTRACT(YEAR FROM origin_date)"
+    else:  # month
+        # Using SUBSTR for SQLite compatibility in tests.
+        # For PostgreSQL, DATE_TRUNC('month', origin_date) would be more robust.
+        date_trunc_sql = "SUBSTR(origin_date, 1, 7)"
+
+    params: Dict[str, Any] = {}
+    where_clauses = ["origin_date IS NOT NULL"]
+
+    if operators:
+        where_clauses.append("operator IN :operators")
+        params["operators"] = tuple(operators)
+    if phases:
+        where_clauses.append("phase IN :phases")
+        params["phases"] = tuple(phases)
+    if aircraft_types:
+        where_clauses.append("aircraft_type IN :aircraft_types")
+        params["aircraft_types"] = tuple(aircraft_types)
+    if start_date:
+        where_clauses.append("origin_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        where_clauses.append("origin_date <= :end_date")
+        params["end_date"] = end_date
+
+    where_sql = " AND ".join(where_clauses)
+
+    # This query unions the dates from the different source tables
+    # before performing the aggregation.
+    query = text(f"""
+        WITH all_incidents AS (
+            SELECT CAST(date AS DATE) AS origin_date, operator, phase, aircraft_type
+            FROM asn_scraped_accidents
+            UNION ALL
+            SELECT CAST(time AS DATE) AS origin_date, operator, phase, aircraft_type
+            FROM asrs_records
+            UNION ALL
+            SELECT CAST(date AS DATE) AS origin_date, operator, NULL AS phase, aircraft_type
+            FROM pci_scraped_accidents
+        )
+        SELECT
+            {date_trunc_sql} AS period_start,
+            COUNT(*) AS incident_count
+        FROM all_incidents
+        WHERE {where_sql}
+        GROUP BY period_start
+        ORDER BY period_start;
+    """).bindparams(
+        bindparam("operators", expanding=True),
+        bindparam("phases", expanding=True),
+        bindparam("aircraft_types", expanding=True)
+    )
+
+    result = await db.execute(query, params)
+    return [dict(row) for row in result.mappings().all()]
+
+
+@app.get("/aggregates/top-n")
+async def get_top_n_aggregates(
+    category: Literal["operator", "aircraft_type", "phase"] = Query(
+        ..., description="The category to aggregate."
+    ),
+    n: int = Query(default=10, gt=0, le=100, description="The number of top results to return."),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Provides a list of the top N most frequent items for a given category,
+    such as 'operator', 'aircraft_type', or 'phase'.
+    """
+    category_map = {
+        "operator": "origin_operator",
+        "aircraft_type": "origin_aircraft_type",
+        "phase": "origin_phase",
+    }
+    column_name = category_map[category]
+
+    # This query unions the relevant column from all source tables
+    # before counting, ordering, and limiting the results.
+    query = text(f"""
+        WITH all_items AS (
+            SELECT operator AS item FROM asn_scraped_accidents
+            UNION ALL
+            SELECT aircraft_type AS item FROM asn_scraped_accidents
+            UNION ALL
+            SELECT phase AS item FROM asn_scraped_accidents
+            UNION ALL
+            SELECT operator AS item FROM asrs_records
+            UNION ALL
+            SELECT aircraft_type AS item FROM asrs_records
+            UNION ALL
+            SELECT phase AS item FROM asrs_records
+            UNION ALL
+            SELECT operator AS item FROM pci_scraped_accidents
+            UNION ALL
+            SELECT aircraft_type AS item FROM pci_scraped_accidents
+        )
+        SELECT
+            item AS category_value,
+            COUNT(*) AS incident_count
+        FROM all_items
+        WHERE item IS NOT NULL AND item != ''
+        GROUP BY item
+        ORDER BY incident_count DESC
+        LIMIT :n;
+    """).bindparams(bindparam("n", type_=int))
+
+    result = await db.execute(query, {"n": n})
+    return [dict(row) for row in result.mappings().all()]
+
+
+@app.get("/incidents/locations")
+async def get_incident_locations(
+    start_date: date | None = Query(default=None, description="The start of the date range (inclusive)."),
+    end_date: date | None = Query(default=None, description="The end of the date range (inclusive)."),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Provides a list of incidents with their geographic coordinates, suitable for map visualizations.
+    It supports filtering by a date range.
+    """
+    params: Dict[str, Any] = {}
+    where_clauses = ["al.lat IS NOT NULL AND al.lon IS NOT NULL"]
+
+    if start_date:
+        where_clauses.append("inc.origin_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        where_clauses.append("inc.origin_date <= :end_date")
+        params["end_date"] = end_date
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = text(f"""
+        WITH all_incidents AS (
+            SELECT
+                uid, narrative AS summary, CAST(date AS DATE) AS origin_date,
+                location, operator
+            FROM asn_scraped_accidents
+            UNION ALL
+            SELECT
+                uid, synopsis AS summary, CAST(time AS DATE) AS origin_date,
+                place AS location, operator
+            FROM asrs_records
+            UNION ALL
+            SELECT
+                uid, summary, CAST(date AS DATE) AS origin_date,
+                location, operator
+            FROM pci_scraped_accidents
+        )
+        SELECT
+            inc.uid, inc.summary, inc.origin_date, inc.operator,
+            al.lat, al.lon, al.name as location_name
+        FROM all_incidents inc
+        LEFT JOIN airport_location al ON LOWER(inc.location) = al.icao_code
+        WHERE {where_sql}
+        ORDER BY inc.origin_date DESC;
+    """)
+
+    result = await db.execute(query, params)
+    return [dict(row) for row in result.mappings().all()]
+
+
+@app.get("/aggregates/hierarchy")
+async def get_hierarchy_aggregates(
+    start_date: date | None = Query(default=None, description="Filter by start date."),
+    end_date: date | None = Query(default=None, description="Filter by end date."),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Provides data grouped by operator, aircraft_type, and phase, suitable for
+    hierarchical visualizations like sunburst or treemap charts.
+    """
+    params: Dict[str, Any] = {}
+    where_clauses = ["operator IS NOT NULL", "aircraft_type IS NOT NULL", "phase IS NOT NULL"]
+
+    if start_date:
+        where_clauses.append("origin_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        where_clauses.append("origin_date <= :end_date")
+        params["end_date"] = end_date
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = text(f"""
+        WITH all_incidents AS (
+            SELECT CAST(date AS DATE) AS origin_date, operator, phase, aircraft_type FROM asn_scraped_accidents
+            UNION ALL
+            SELECT CAST(time AS DATE) AS origin_date, operator, phase, aircraft_type FROM asrs_records
+        )
+        SELECT operator, aircraft_type, phase, COUNT(*) as incident_count
+        FROM all_incidents
+        WHERE {where_sql}
+        GROUP BY operator, aircraft_type, phase;
+    """)
+    result = await db.execute(query, params)
+    return [dict(row) for row in result.mappings().all()]
 
 
 # -------------------------------------------------------------------

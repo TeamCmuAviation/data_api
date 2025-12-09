@@ -313,3 +313,65 @@ async def test_submit_human_evaluation(client):
         assert assign_row is not None
         assert assign_row["is_complete"] in (1, True)
         assert assign_row["completed_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_get_aggregates_over_time(client):
+    # Test monthly aggregation
+    response_month = await client.get("/aggregates/over-time", params={"period": "month"})
+    assert response_month.status_code == 200
+    data_month = response_month.json()
+    assert len(data_month) == 2
+    assert {"period_start": "2024-01", "incident_count": 1} in data_month
+    assert {"period_start": "2024-02", "incident_count": 1} in data_month
+
+    # Test yearly aggregation
+    response_year = await client.get("/aggregates/over-time", params={"period": "year"})
+    assert response_year.status_code == 200
+    data_year = response_year.json()
+    assert len(data_year) == 1
+    # Note: SQLite's EXTRACT is not standard, but our test setup uses it.
+    # The response will be an integer for the year.
+    assert data_year[0]["period_start"] == 2024
+    assert data_year[0]["incident_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_get_top_n_aggregates(client):
+    # Test top operators
+    response = await client.get("/aggregates/top-n", params={"category": "operator", "n": 5})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    # The order might not be guaranteed if counts are equal
+    expected_operators = [
+        {"category_value": "Test Operator", "incident_count": 1},
+        {"category_value": "Another Operator", "incident_count": 1},
+    ]
+    assert all(item in data for item in expected_operators)
+
+
+@pytest.mark.asyncio
+async def test_get_incident_locations(client, setup_test_database):
+    # Add an incident with a known location to test the join
+    async with TestingSessionLocal() as session:
+        await session.execute(text(
+            """
+            INSERT INTO asrs_records (uid, time, place)
+            VALUES ('asrs_with_loc', '2024-03-15', 'kjfk')
+            """
+        ))
+        await session.commit()
+
+    # Test without date filter
+    response = await client.get("/incidents/locations")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["uid"] == "asrs_with_loc"
+    assert data[0]["location_name"] == "John F. Kennedy International Airport"
+
+    # Test with date filter that excludes the incident
+    response_filtered = await client.get("/incidents/locations?start_date=2025-01-01")
+    assert response_filtered.status_code == 200
+    assert response_filtered.json() == []

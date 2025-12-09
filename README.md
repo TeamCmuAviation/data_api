@@ -1,155 +1,157 @@
-## FastAPI Data API (Dockerized)
+# Aviation Safety Analysis API
 
-This project exposes a simple FastAPI service that queries a PostgreSQL database for aviation-related records based on a `uid`. The table is inferred from the prefix before the first `_` in the `uid` (e.g. `asn_`, `asrs_`, `pci_`).
+This project provides a high-performance FastAPI backend designed to serve data for an aviation safety analysis dashboard. It offers a suite of API endpoints for retrieving raw incident data, fetching pre-aggregated analytics for visualizations, and managing human evaluation workflows.
 
-## API Endpoints
+The API is built to be efficient and scalable, pushing complex filtering and aggregation logic to the database layer to ensure the frontend remains fast and responsive.
+
+## System Architecture
+
+The system is composed of:
+
+*   **FastAPI Application (`main.py`):** A modern, high-performance Python web framework for building APIs.
+*   **PostgreSQL Database:** A robust, open-source relational database to store all aviation incident data, classification results, and user evaluations.
+*   **SQLAlchemy Core:** Used for asynchronous database interaction, allowing for non-blocking I/O and high concurrency.
+*   **Docker & Docker Compose:** For containerizing the application and its database, ensuring a consistent and reproducible development and deployment environment.
+
+## Features
+
+*   **Bulk Data Retrieval:** Efficiently fetch detailed information for thousands of incident records in a single request.
+*   **Dynamic Aggregation Endpoints:**
+    *   Time-series data for incident trends (`/aggregates/over-time`).
+    *   Top-N rankings for categories like operators, aircraft, and flight phases (`/aggregates/top-n`).
+    *   Geospatial data for map visualizations (`/incidents/locations`).
+    *   Two-dimensional data for correlation heatmaps (`/aggregates/heatmap`).
+    *   Hierarchical data for sunburst or treemap charts (`/aggregates/hierarchy`).
+*   **Interactive Filtering:** Most aggregation endpoints support filtering by date range, operator, aircraft type, and more.
+*   **Human Evaluation Workflow:** Endpoints to support a "human-in-the-loop" review process for classification results.
+*   **Containerized Deployment:** Ready to be deployed with Docker.
 
 ---
 
-### 1. Get Airport Information
+## Getting Started
 
-Retrieves details for a list of airports based on their ICAO codes.
+### Prerequisites
 
-*   **Endpoint:** `GET /airports`
+*   Docker and Docker Compose
+*   Python 3.10+ (for local development outside of Docker)
+
+### Deployment with Docker (Recommended)
+
+This is the simplest and most reliable way to run the application and its database.
+
+1.  **Clone the repository:**
+    ```bash
+    git clone <your-repo-url>
+    cd data_api
+    ```
+
+2.  **Configure the Database:**
+    The Docker Compose setup uses the environment variables defined in `docker-compose.yml`. The application's `DATABASE_URL` is automatically configured to connect to the Dockerized PostgreSQL instance.
+
+3.  **Build and Run the Containers:**
+    From the root of the project directory, run:
+    ```bash
+    docker-compose up --build
+    ```
+    This command will:
+    *   Build the Docker image for the FastAPI application.
+    *   Start a PostgreSQL container.
+    *   Start the FastAPI application container.
+
+4.  **Access the API:**
+    The API will be available at `http://localhost:8000`. You can access the interactive OpenAPI documentation at `http://localhost:8000/docs`.
+
+### Local Development (Without Docker)
+
+1.  **Set up a Python virtual environment:**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+    ```
+
+2.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+3.  **Configure the Database:**
+    Ensure you have a running PostgreSQL instance. Modify the `DATABASE_URL` in `database.py` to point to your database.
+
+4.  **Run the application:**
+    ```bash
+    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ```
+
+---
+
+## Running Tests
+
+The test suite uses an in-memory SQLite database to ensure tests are fast and isolated.
+
+To run the tests (either locally or inside the Docker container):
+```bash
+pytest
+```
+
+---
+
+## API Specification
+
+Below is a summary of the available endpoints. For complete details and interactive testing, please refer to the auto-generated docs at `/docs` when the application is running.
+
+### `GET /airports`
+*   **Description:** Retrieves location and metadata for a list of airports.
+*   **Query Parameters:** `codes` (List[str]): A list of ICAO codes to look up.
+*   **Example:** `GET /airports?codes=KJFK&codes=EGLL`
+
+### `GET /classification-results`
+*   **Description:** Fetches a paginated list of all classification results.
+*   **Query Parameters:** `skip` (int), `limit` (int), `evaluator_id` (str, optional).
+
+### `POST /full_classification_results_bulk`
+*   **Description:** Retrieves the full, joined incident records for a given list of UIDs. This is the primary endpoint for populating a data table.
+*   **Request Body:** A JSON array of string UIDs. `["asrs_1", "asn_1"]`
+*   **Response:** A JSON object containing `results` (a dictionary of incident objects) and `aggregates` (summary statistics).
+
+### `GET /aggregates/over-time`
+*   **Description:** Provides time-series data of incident counts.
 *   **Query Parameters:**
-    *   `codes` (list[str]): A list of ICAO airport codes (e.g., `KJFK`, `EGLL`).
-*   **Success Response (200):**
-    *   Returns a dictionary where keys are the ICAO codes and values are objects containing airport details.
+    *   `period` ('year' or 'month'): The time bucket for aggregation.
+    *   `start_date`, `end_date` (date): Date range filters.
+    *   `operators`, `phases`, `aircraft_types` (List[str]): Categorical filters.
+*   **Example:** `GET /aggregates/over-time?period=month&operators=American+Airlines`
 
-    **Example Request:**
-    ```
-    GET /airports?codes=KJFK&codes=EGLL
-    ```
-
-    **Example Response:**
-    ```json
-    {
-      "KJFK": {
-        "icao_code": "KJFK",
-        "iata_code": "JFK",
-        "name": "John F Kennedy International Airport",
-        "city": "New York",
-        "country": "USA",
-        "lat": 40.639801,
-        "lon": -73.7789
-      },
-      "EGLL": {
-        "icao_code": "EGLL",
-        "iata_code": "LHR",
-        "name": "London Heathrow Airport",
-        "city": "London",
-        "country": "GB",
-        "lat": 51.4706,
-        "lon": -0.461941
-      }
-    }
-    ```
-
----
-
-### 2. Get Classification Results
-
-Fetches a paginated list of classification results. Can be filtered by the evaluator assigned to the result.
-
-*   **Endpoint:** `GET /classification-results`
+### `GET /aggregates/top-n`
+*   **Description:** Gets the top N most frequent items for a given category.
 *   **Query Parameters:**
-    *   `skip` (int, optional, default: 0): Number of records to skip for pagination.
-    *   `limit` (int, optional, default: 100): Maximum number of records to return.
-    *   `evaluator_id` (str, optional): Filter results by the ID of the evaluator.
-*   **Success Response (200):**
-    *   Returns a list of classification result objects.
+    *   `category` ('operator', 'aircraft_type', 'phase'): The category to rank.
+    *   `n` (int): The number of results to return.
+*   **Example:** `GET /aggregates/top-n?category=aircraft_type&n=5`
 
----
+### `GET /incidents/locations`
+*   **Description:** Provides geolocated incidents for map visualizations.
+*   **Query Parameters:** `start_date`, `end_date` (date).
+*   **Example:** `GET /incidents/locations?start_date=2023-01-01`
 
-### 3. Get Full Classification Results in Bulk
+### `GET /aggregates/heatmap`
+*   **Description:** Provides 2D aggregated data for generating a correlation heatmap.
+*   **Query Parameters:**
+    *   `dimension1`, `dimension2` ('operator', 'aircraft_type', 'phase'): The two categories to cross-tabulate.
+    *   `start_date`, `end_date` (date).
+*   **Example:** `GET /aggregates/heatmap?dimension1=phase&dimension2=aircraft_type`
 
-Retrieves comprehensive details for multiple classification results, including original source data and aggregate statistics.
+### `GET /aggregates/hierarchy`
+*   **Description:** Provides data grouped by operator, aircraft type, and phase for hierarchical charts (e.g., sunburst).
+*   **Query Parameters:** `start_date`, `end_date` (date).
 
-*   **Endpoint:** `POST /full_classification_results_bulk`
-*   **Request Body:**
-    *   A JSON list of source UIDs.
-    ```json
-    [ "uid1", "uid2" ]
-    ```
-*   **Success Response (200):**
-    *   Returns an object containing:
-        *   `results`: A dictionary of the full result data, keyed by `source_uid`.
-        *   `aggregates`: An object with aggregate statistics like total incidents, unique operators, etc.
+### `POST /human_evaluation/submit`
+*   **Description:** Submits a human evaluation for a specific classification result.
+*   **Request Body:** A JSON object with evaluation details.
 
----
-
-### 4. Submit Human Evaluation
-
-Submits a human-provided evaluation for a specific classification result and marks the corresponding evaluation assignment as complete.
-
-*   **Endpoint:** `POST /human_evaluation/submit`
-*   **Request Body:**
-    *   A JSON object with the following fields:
-        *   `classification_result_id` (int): The ID of the classification result being evaluated.
-        *   `evaluator_id` (str): The ID of the person performing the evaluation.
-        *   `human_category` (str): The category assigned by the human evaluator.
-        *   `human_confidence` (float): The confidence level of the human evaluator.
-        *   `human_reasoning` (str): The reasoning behind the human evaluation.
-*   **Success Response (200):**
-    ```json
-    {
-      "status": "success",
-      "message": "Evaluation submitted"
-    }
-    ```
-*   **Error Response (200):**
-    *   If the assignment is not found or already completed.
-    ```json
-    {
-      "status": "error",
-      "message": "Assignment not found or already complete."
-    }
-    ```
-
-### Database Configuration
-
-The database connection is configured in `database.py` via `DATABASE_URL`. Ensure that:
-
-- The PostgreSQL instance is reachable from inside the Docker container.
-- The credentials and host in `DATABASE_URL` are correct for your environment.
-
-If you prefer, you can change `DATABASE_URL` to read from an environment variable and then pass it at `docker run` time.
-
-### Building the Docker Image
-
-From the project root (where `Dockerfile` is located), run:
-
-```bash
-docker build -t data-api .
 ```
 
-### Running the Container
+### 2. New `Dockerfile`
 
-Run the container, exposing port `8000`:
+This file contains the instructions to build a Docker image for your FastAPI application.
 
-```bash
-docker run --rm -p 58510:58510 data-api
-```
-
-If you modify `DATABASE_URL` to come from an environment variable (e.g. `DATABASE_URL`), you can pass it like this:
-
-```bash
-docker run --rm -p 58510:58510 -e DATABASE_URL="postgresql://user:password@host:5432/dbname" data-api
-```
-
-### Accessing the API
-
-Once the container is running, you can access:
-
-- **Endpoint**: `http://localhost:8000/record/{uid}`
-  - Example:
-    - `http://localhost:8000/record/asn_example_uid`
-    - `http://localhost:8000/record/asrs_example_uid`
-    - `http://localhost:8000/record/pci_example_uid`
-
-### Interactive API Docs
-
-FastAPI automatically provides interactive docs:
-
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+```diff
