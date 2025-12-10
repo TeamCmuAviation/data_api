@@ -117,32 +117,67 @@ Below is a summary of the available endpoints. For complete details and interact
 *   **Description:** Provides time-series data of incident counts.
 *   **Query Parameters:**
     *   `period` ('year' or 'month'): The time bucket for aggregation.
-    *   `start_date`, `end_date` (date): Date range filters.
-    *   `operators`, `phases`, `aircraft_types` (List[str]): Categorical filters.
-*   **Example:** `GET /aggregates/over-time?period=month&operators=American+Airlines`
+    *   `start_period` (str, optional): Start period in `YYYY-MM` format (e.g., "2023-01").
+    *   `end_period` (str, optional): End period in `YYYY-MM` format (e.g., "2023-12").
+    *   `operators` (List[str], optional): List of operators to filter by.
+    *   `phases` (List[str], optional): List of flight phases to filter by.
+    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
+*   **Example:** `GET /aggregates/over-time?period=month&operators=American+Airlines&start_period=2023-01`
 
 ### `GET /aggregates/top-n`
 *   **Description:** Gets the top N most frequent items for a given category.
 *   **Query Parameters:**
-    *   `category` ('operator', 'aircraft_type', 'phase'): The category to rank.
+    *   `category` ('operator', 'aircraft_type', 'phase', 'location'): The category to rank.
     *   `n` (int): The number of results to return.
-*   **Example:** `GET /aggregates/top-n?category=aircraft_type&n=5`
+    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
+    *   `end_period` (str, optional): End period in `YYYY-MM` format.
+    *   `operators` (List[str], optional): List of operators to filter by.
+    *   `phases` (List[str], optional): List of flight phases to filter by.
+    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
+    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
+*   **Example:** `GET /aggregates/top-n?category=aircraft_type&n=5&phases=approach`
 
 ### `GET /incidents/locations`
 *   **Description:** Provides geolocated incidents for map visualizations.
-*   **Query Parameters:** `start_date`, `end_date` (date).
-*   **Example:** `GET /incidents/locations?start_date=2023-01-01`
+*   **Query Parameters:**
+    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
+    *   `end_period` (str, optional): End period in `YYYY-MM` format.
+    *   `operators` (List[str], optional): List of operators to filter by.
+    *   `phases` (List[str], optional): List of flight phases to filter by.
+    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
+*   **Example:** `GET /incidents/locations?start_period=2023-01&end_period=2023-03`
 
 ### `GET /aggregates/heatmap`
 *   **Description:** Provides 2D aggregated data for generating a correlation heatmap.
 *   **Query Parameters:**
     *   `dimension1`, `dimension2` ('operator', 'aircraft_type', 'phase'): The two categories to cross-tabulate.
-    *   `start_date`, `end_date` (date).
-*   **Example:** `GET /aggregates/heatmap?dimension1=phase&dimension2=aircraft_type`
+    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
+    *   `end_period` (str, optional): End period in `YYYY-MM` format.
+    *   `operators` (List[str], optional): List of operators to filter by.
+    *   `phases` (List[str], optional): List of flight phases to filter by.
+    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
+    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
+*   **Example:** `GET /aggregates/heatmap?dimension1=phase&dimension2=aircraft_type&operators=Delta+Air+Lines`
 
 ### `GET /aggregates/hierarchy`
 *   **Description:** Provides data grouped by operator, aircraft type, and phase for hierarchical charts (e.g., sunburst).
-*   **Query Parameters:** `start_date`, `end_date` (date).
+*   **Query Parameters:**
+    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
+    *   `end_period` (str, optional): End period in `YYYY-MM` format.
+    *   `operators` (List[str], optional): List of operators to filter by.
+    *   `phases` (List[str], optional): List of flight phases to filter by.
+    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
+    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
+
+### `GET /aggregates/statistics`
+*   **Description:** Provides high-level summary statistics, like total incident count.
+*   **Query Parameters:**
+    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
+    *   `end_period` (str, optional): End period in `YYYY-MM` format.
+    *   `operators` (List[str], optional): List of operators to filter by.
+    *   `phases` (List[str], optional): List of flight phases to filter by.
+    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
+    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
 
 ### `POST /human_evaluation/submit`
 *   **Description:** Submits a human evaluation for a specific classification result.
