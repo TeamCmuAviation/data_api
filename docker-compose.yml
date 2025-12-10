@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:13
+    container_name: aviation_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: toormaster
+      POSTGRES_DB: aviation
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      - "5432:5432" # Optional: expose db port to host for debugging
+
+  api:
+    build: .
+    container_name: aviation_api
+    ports:
+      - "58510:58510"
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://postgres:toormaster@db/aviation"
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:

@@ -2,9 +2,36 @@
 
 This FastAPI application provides a comprehensive set of endpoints to query and analyze aviation incident data. It allows fetching raw incident reports, classification results, and various aggregated statistics suitable for data visualization.
 
-## Running the API
+## Features
 
-To run the API locally, use the following command. The server will be available at `http://0.0.0.0:58510`.
+*   **Raw Data Access**: Fetch detailed incident reports from multiple sources.
+*   **Aggregated Statistics**: Get aggregated data for various dimensions:
+    *   Counts over time (time-series).
+    *   Top-N rankings for categories like operators, aircraft, and locations.
+    *   Hierarchical data for sunburst/treemap visualizations.
+    *   Heatmap data for 2D analysis.
+*   **Geographic Data**: Retrieve incidents with coordinates for map visualizations.
+*   **Human-in-the-loop**: Endpoints to support human evaluation and classification workflows.
+
+## Getting Started
+
+### Prerequisites
+
+*   Python 3.8+
+*   PostgreSQL
+
+### Installation
+
+1.  Clone the repository and navigate into the directory.
+2.  Install the required Python packages. It is recommended to use a virtual environment.
+    ```bash
+    pip install -r requirements.txt
+    ```
+3.  Ensure your PostgreSQL database is running and accessible. The application is configured via environment variables or a `.env` file to connect to the database. The tests in `test_api.py` use the connection string `postgresql+asyncpg://postgres:toormaster@localhost/aviation`.
+
+### Running the API
+
+To run the API locally with live reloading, use `uvicorn`. The server will be available at `http://0.0.0.0:58510` by default.
 
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 58510 --reload

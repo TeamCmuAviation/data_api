@@ -389,6 +389,32 @@ async def test_get_top_n_aggregates_by_final_category_with_date_filter(client):
 
 
 @pytest.mark.asyncio
+async def test_get_aggregates_by_location(client):
+    """
+    Tests the aggregation of incident counts by location.
+    """
+    response = await client.get("/aggregates/by-location")
+    assert response.status_code == 200
+    data = response.json()
+
+    # Expected from seed data: 'Test City' (count 2), 'Another City' (count 1)
+    assert len(data) == 2
+    assert data[0]['location'] == 'Test City'
+    assert data[0]['incident_count'] == 2
+    assert data[1]['location'] == 'Another City'
+    assert data[1]['incident_count'] == 1
+
+    # Test with a time filter for January 2024
+    response_filtered = await client.get("/aggregates/by-location?start_period=2024-01&end_period=2024-01")
+    assert response_filtered.status_code == 200
+    data_filtered = response_filtered.json()
+
+    assert len(data_filtered) == 1
+    assert data_filtered[0]['location'] == 'Test City'
+    assert data_filtered[0]['incident_count'] == 2
+
+
+@pytest.mark.asyncio
 async def test_get_incident_locations(client):
     async with TestingSessionLocal() as session:
         await session.execute(text("""
