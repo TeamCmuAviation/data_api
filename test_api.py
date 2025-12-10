@@ -79,12 +79,15 @@ async def setup_database():
         await conn.execute(text("""
             CREATE TABLE classification_results (
                 id SERIAL PRIMARY KEY,
-                source_uid TEXT
+                source_uid TEXT,
+                final_category TEXT
             )
         """))
         await conn.execute(text("""
-            INSERT INTO classification_results (id, source_uid)
-            VALUES (1, 'asrs_1'), (2, 'asn_1')
+            INSERT INTO classification_results (id, source_uid, final_category)
+            VALUES (1, 'asrs_1', 'Weather'),
+                   (2, 'asn_1', 'Bird Strike'),
+                   (3, 'asrs_2', 'Weather')
         """))
 
         # ASRS
@@ -102,10 +105,12 @@ async def setup_database():
         """))
         await conn.execute(text("""
             INSERT INTO asrs_records
-            (uid, synopsis, time, phase, aircraft_type, place, operator)
+            (uid, synopsis, time, sanitized_date, phase, aircraft_type, place, operator)
             VALUES
-            ('asrs_1', 'Test ASRS synopsis', '2024-01-01', 'cruise',
-             'A320', 'Test City', 'Test Operator', '2024-01-01')
+            ('asrs_1', 'Test ASRS synopsis', '2024-01-01', '2024-01-01', 'cruise',
+             'A320', 'Test City', 'Test Operator'),
+            ('asrs_2', 'Another ASRS synopsis', '2024-01-15', '2024-01-15', 'climb',
+             'A321', 'Test City', 'Test Operator')
         """))
 
         # ASN
@@ -123,10 +128,10 @@ async def setup_database():
         """))
         await conn.execute(text("""
             INSERT INTO asn_scraped_accidents
-            (uid, narrative, date, phase, aircraft_type, location, operator)
+            (uid, narrative, date, sanitized_date, phase, aircraft_type, location, operator)
             VALUES
-            ('asn_1', 'Test ASN narrative', '2024-02-02', 'approach',
-             'B737', 'Another City', 'Another Operator', '2024-02-02')
+            ('asn_1', 'Test ASN narrative', '2024-02-02', '2024-02-02', 'approach',
+             'B737', 'Another City', 'Another Operator')
         """))
 
         # PCI
@@ -220,9 +225,9 @@ async def test_get_classification_results(client):
     response = await client.get("/classification-results")
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 2
+    assert len(body) == 3
     source_uids = {row["source_uid"] for row in body}
-    assert {"asrs_1", "asn_1"} <= source_uids
+    assert {"asrs_1", "asn_1", "asrs_2"} <= source_uids
 
 
 @pytest.mark.asyncio
@@ -302,20 +307,22 @@ async def test_get_aggregates_over_time(client):
     response_month = await client.get("/aggregates/over-time", params={"period": "month"})
     assert response_month.status_code == 200
     data_month = response_month.json()
-    assert {"period_start": "2024-01", "incident_count": 1} in data_month
-    assert {"period_start": "2024-02", "incident_count": 1} in data_month
+
+    # Convert to a dictionary for easier lookup, as order isn't guaranteed
+    month_map = {d["period_start"]: d["incident_count"] for d in data_month}
+    assert month_map.get("2024-01") == 2  # asrs_1 and asrs_2
+    assert month_map.get("2024-02") == 1  # asn_1
 
     # yearly
     response_year = await client.get("/aggregates/over-time", params={"period": "year"})
     assert response_year.status_code == 200
     data_year = response_year.json()
     assert len(data_year) >= 1
-    # EXTRACT may return Decimal — cast to int for assertion
+    # EXTRACT may return a Decimal — cast to int for assertion
     assert int(data_year[0]["period_start"]) == 2024
-    # total incidents for 2024 should be 2 (one ASRS + one ASN)
-    # sum counts across returned rows in case DB returns multiple rows
+    # Total incidents for 2024 should be 3 (two ASRS + one ASN)
     total_incidents = sum(int(r["incident_count"]) for r in data_year)
-    assert total_incidents == 2
+    assert total_incidents == 3
 
 
 @pytest.mark.asyncio
@@ -325,6 +332,24 @@ async def test_get_top_n_aggregates(client):
     data = response.json()
     found = {row["category_value"] for row in data}
     assert {"Test Operator", "Another Operator"}.issubset(found)
+
+
+@pytest.mark.asyncio
+async def test_get_top_n_aggregates_by_final_category(client):
+    """
+    Tests the top-n aggregation for the 'final_category' dimension,
+    which requires joining with the classification_results table.
+    """
+    response = await client.get("/aggregates/top-n", params={"category": "final_category", "n": 5})
+    assert response.status_code == 200
+    data = response.json()
+
+    # Expected: 'Weather' (count 2), 'Bird Strike' (count 1)
+    assert len(data) == 2
+    assert data[0]["category_value"] == "Weather"
+    assert data[0]["incident_count"] == 2
+    assert data[1]["category_value"] == "Bird Strike"
+    assert data[1]["incident_count"] == 1
 
 
 @pytest.mark.asyncio

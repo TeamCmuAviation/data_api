@@ -213,7 +213,7 @@ async def get_aggregates_over_time(
 
 @app.get("/aggregates/top-n")
 async def get_top_n_aggregates(
-    category: Literal["operator", "aircraft_type", "phase"] = Query(
+    category: Literal["operator", "aircraft_type", "phase", "final_category", "location"] = Query(
         ..., description="The category to aggregate."
     ),
     n: int = Query(default=10, gt=0, le=100, description="The number of top results to return."),
@@ -227,15 +227,16 @@ async def get_top_n_aggregates(
 ):
     """
     Provides a list of the top N most frequent items for a given category,
-    such as 'operator', 'aircraft_type', or 'phase'.
+    such as 'operator', 'aircraft_type', 'phase', or 'final_category'.
     """
     category_map = {
         "operator": "operator",
         "aircraft_type": "aircraft_type",
         "phase": "phase",
         "location": "location",
+        "final_category": "final_category",
     }
-    # Ensure the category is valid before proceeding
+    # FastAPI's Literal validation makes this check mostly redundant, but it's a safe fallback.
     if category not in category_map:
         return []
     group_by_col = category_map[category]
@@ -269,14 +270,34 @@ async def get_top_n_aggregates(
 
     where_sql = " AND ".join(where_clauses)
 
+    # The CTE needs to change based on whether we are aggregating a classification category
+    # or a raw incident attribute.
+    if category == "final_category":
+        cte_sql = """
+            WITH all_incidents AS (
+                SELECT cr.final_category, origin.operator, origin.sanitized_date, origin.phase, origin.aircraft_type, origin.location
+                FROM classification_results cr JOIN public.asn_scraped_accidents origin ON cr.source_uid = origin.uid
+                UNION ALL
+                SELECT cr.final_category, origin.operator, origin.sanitized_date, origin.phase, origin.aircraft_type, origin.place AS location
+                FROM classification_results cr JOIN public.asrs_records origin ON cr.source_uid = origin.uid
+                UNION ALL
+                SELECT cr.final_category, origin.operator, origin.sanitized_date, NULL AS phase, origin.aircraft_type, origin.location
+                FROM classification_results cr JOIN public.pci_scraped_accidents origin ON cr.source_uid = origin.uid
+            )
+        """
+    else:
+        cte_sql = """
+            WITH all_incidents AS (
+                SELECT sanitized_date, operator, phase, aircraft_type, location FROM asn_scraped_accidents
+                UNION ALL
+                SELECT sanitized_date, operator, phase, aircraft_type, place AS location FROM asrs_records
+                UNION ALL
+                SELECT sanitized_date, operator, NULL AS phase, aircraft_type, location FROM pci_scraped_accidents
+            )
+        """
+
     query = text(f"""
-        WITH all_incidents AS (
-            SELECT sanitized_date, operator, phase, aircraft_type, location FROM asn_scraped_accidents
-            UNION ALL
-            SELECT sanitized_date, operator, phase, aircraft_type, place AS location FROM asrs_records
-            UNION ALL
-            SELECT sanitized_date, operator, NULL AS phase, aircraft_type, location FROM pci_scraped_accidents
-        )
+        {cte_sql}
         SELECT
             {group_by_col} AS category_value,
             COUNT(*) AS incident_count

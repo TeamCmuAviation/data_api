@@ -199,7 +199,7 @@ A list of objects, each containing a time period and the corresponding incident 
 **Description**: Provides a list of the top N most frequent items for a given category, such as 'operator', 'aircraft_type', or 'phase'.
 
 **Query Parameters**:
--   `category` (`str`, required, enum: `["operator", "aircraft_type", "phase"]`): The category to aggregate.
+-   `category` (`str`, required, enum: `["operator", "aircraft_type", "phase", "final_category"]`): The category to aggregate.
 -   `n` (`int`, optional, default: 10): The number of top results to return.
 -   *Plus Common Filters (all available)*
 
@@ -217,6 +217,28 @@ A list of objects, each containing a category value and its incident count.
   {
     "category_value": "Airbus A320",
     "incident_count": 450
+  }
+]
+```
+
+**Example Request (by classification category)**:
+`GET /aggregates/top-n?category=final_category&n=3`
+
+**Example Response (by classification category)**:
+A list of objects, each containing a category value and its incident count.
+```json
+[
+  {
+    "category_value": "Bird Strike",
+    "incident_count": 830
+  },
+  {
+    "category_value": "Weather",
+    "incident_count": 620
+  },
+  {
+    "category_value": "Engine Failure",
+    "incident_count": 410
   }
 ]
 ```
