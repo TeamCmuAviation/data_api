@@ -124,6 +124,18 @@ Below is a summary of the available endpoints. For complete details and interact
     *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
 *   **Example:** `GET /aggregates/over-time?period=month&operators=American+Airlines&start_period=2023-01`
 
+### `GET /aggregates/classification-over-time`
+*   **Description:** Provides aggregated time-series data specifically for **classification results**. This is ideal for visualizing trends of specific classified incident types (e.g., "Stall", "Go-around").
+*   **Query Parameters:**
+    *   `period` ('year' or 'month'): The time bucket for aggregation.
+    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
+    *   `end_period` (str, optional): End period in `YYYY-MM` format.
+    *   `classifications` (List[str], optional): List of classification categories to filter by.
+    *   `phases` (List[str], optional): List of flight phases to filter by.
+    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
+    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
+*   **Example:** `GET /aggregates/classification-over-time?classifications=Stall&phases=approach`
+
 ### `GET /aggregates/top-n`
 *   **Description:** Gets the top N most frequent items for a given category.
 *   **Query Parameters:**

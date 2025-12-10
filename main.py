@@ -291,6 +291,81 @@ async def get_top_n_aggregates(
     return [dict(row) for row in result.mappings().all()]
 
 
+@app.get("/aggregates/classification-over-time")
+async def get_classification_aggregates_over_time(
+    period: Literal["year", "month"] = Query(
+        default="month", description="The time period to group by ('year' or 'month')."
+    ),
+    classifications: List[str] | None = Query(default=None, description="Filter by one or more classification categories."),
+    phases: List[str] | None = Query(default=None, description="Filter by one or more flight phases."),
+    locations: List[str] | None = Query(default=None, description="Filter by one or more locations (ICAO codes)."),
+    aircraft_types: List[str] | None = Query(default=None, description="Filter by one or more aircraft types."),
+    start_period: str | None = Query(default=None, description="Start period in YYYY-MM format.", regex=r"^\d{4}-\d{2}$"),
+    end_period: str | None = Query(default=None, description="End period in YYYY-MM format.", regex=r"^\d{4}-\d{2}$"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Provides aggregated time-series data for classification results,
+    supporting filtering by classification, phase, location, and aircraft type.
+    """
+    if period == "year":
+        date_trunc_sql = "EXTRACT(YEAR FROM inc.origin_date)"
+    else:  # month
+        date_trunc_sql = "TO_CHAR(inc.origin_date, 'YYYY-MM')"
+
+    params: Dict[str, Any] = {}
+    where_clauses = ["inc.origin_date IS NOT NULL"]
+
+    if classifications:
+        # Assuming 'category' is the classification column in 'classification_results'
+        where_clauses.append("cr.category IN :classifications")
+        params["classifications"] = tuple(classifications)
+    if phases:
+        where_clauses.append("inc.phase IN :phases")
+        params["phases"] = tuple(phases)
+    if locations:
+        where_clauses.append("inc.location IN :locations")
+        params["locations"] = tuple(locations)
+    if aircraft_types:
+        where_clauses.append("inc.aircraft_type IN :aircraft_types")
+        params["aircraft_types"] = tuple(aircraft_types)
+    if start_period:
+        year, month = map(int, start_period.split('-'))
+        start_date = date(year, month, 1)
+        where_clauses.append("inc.origin_date >= :start_date")
+        params["start_date"] = start_date
+    if end_period:
+        year, month = map(int, end_period.split('-'))
+        _, last_day = calendar.monthrange(year, month)
+        end_date = date(year, month, last_day)
+        where_clauses.append("inc.origin_date <= :end_date")
+        params["end_date"] = end_date
+
+    where_sql = " AND ".join(where_clauses)
+
+    query = text(f"""
+        WITH classified_incidents AS (
+            SELECT cr.category, origin.sanitized_date AS origin_date, origin.phase, origin.aircraft_type, origin.location
+            FROM classification_results cr JOIN asn_scraped_accidents origin ON cr.source_uid = origin.uid
+            UNION ALL
+            SELECT cr.category, origin.sanitized_date AS origin_date, origin.phase, origin.aircraft_type, origin.place AS location
+            FROM classification_results cr JOIN asrs_records origin ON cr.source_uid = origin.uid
+            UNION ALL
+            SELECT cr.category, origin.sanitized_date AS origin_date, NULL AS phase, origin.aircraft_type, origin.location
+            FROM classification_results cr JOIN pci_scraped_accidents origin ON cr.source_uid = origin.uid
+        )
+        SELECT
+            {date_trunc_sql} AS period_start,
+            COUNT(*) AS incident_count
+        FROM classified_incidents inc
+        WHERE {where_sql}
+        GROUP BY period_start
+        ORDER BY period_start;
+    """)
+    result = await db.execute(query, params)
+    return [dict(row) for row in result.mappings().all()]
+
+
 @app.get("/incidents/locations")
 async def get_incident_locations(
     operators: List[str] | None = Query(default=None, description="Filter by one or more operators."),
