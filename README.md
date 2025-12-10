@@ -1,204 +1,353 @@
-# Aviation Safety Analysis API
+# Data API
 
-This project provides a high-performance FastAPI backend designed to serve data for an aviation safety analysis dashboard. It offers a suite of API endpoints for retrieving raw incident data, fetching pre-aggregated analytics for visualizations, and managing human evaluation workflows.
+This FastAPI application provides a comprehensive set of endpoints to query and analyze aviation incident data. It allows fetching raw incident reports, classification results, and various aggregated statistics suitable for data visualization.
 
-The API is built to be efficient and scalable, pushing complex filtering and aggregation logic to the database layer to ensure the frontend remains fast and responsive.
+## Running the API
 
-## System Architecture
+To run the API locally, use the following command. The server will be available at `http://0.0.0.0:58510`.
 
-The system is composed of:
-
-*   **FastAPI Application (`main.py`):** A modern, high-performance Python web framework for building APIs.
-*   **PostgreSQL Database:** A robust, open-source relational database to store all aviation incident data, classification results, and user evaluations.
-*   **SQLAlchemy Core:** Used for asynchronous database interaction, allowing for non-blocking I/O and high concurrency.
-*   **Docker & Docker Compose:** For containerizing the application and its database, ensuring a consistent and reproducible development and deployment environment.
-
-## Features
-
-*   **Bulk Data Retrieval:** Efficiently fetch detailed information for thousands of incident records in a single request.
-*   **Dynamic Aggregation Endpoints:**
-    *   Time-series data for incident trends (`/aggregates/over-time`).
-    *   Top-N rankings for categories like operators, aircraft, and flight phases (`/aggregates/top-n`).
-    *   Geospatial data for map visualizations (`/incidents/locations`).
-    *   Two-dimensional data for correlation heatmaps (`/aggregates/heatmap`).
-    *   Hierarchical data for sunburst or treemap charts (`/aggregates/hierarchy`).
-*   **Interactive Filtering:** Most aggregation endpoints support filtering by date range, operator, aircraft type, and more.
-*   **Human Evaluation Workflow:** Endpoints to support a "human-in-the-loop" review process for classification results.
-*   **Containerized Deployment:** Ready to be deployed with Docker.
-
----
-
-## Getting Started
-
-### Prerequisites
-
-*   Docker and Docker Compose
-*   Python 3.10+ (for local development outside of Docker)
-
-### Deployment with Docker (Recommended)
-
-This is the simplest and most reliable way to run the application and its database.
-
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repo-url>
-    cd data_api
-    ```
-
-2.  **Configure the Database:**
-    The Docker Compose setup uses the environment variables defined in `docker-compose.yml`. The application's `DATABASE_URL` is automatically configured to connect to the Dockerized PostgreSQL instance.
-
-3.  **Build and Run the Containers:**
-    From the root of the project directory, run:
-    ```bash
-    docker-compose up --build
-    ```
-    This command will:
-    *   Build the Docker image for the FastAPI application.
-    *   Start a PostgreSQL container.
-    *   Start the FastAPI application container.
-
-4.  **Access the API:**
-    The API will be available at `http://localhost:8000`. You can access the interactive OpenAPI documentation at `http://localhost:8000/docs`.
-
-### Local Development (Without Docker)
-
-1.  **Set up a Python virtual environment:**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-    ```
-
-2.  **Install dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **Configure the Database:**
-    Ensure you have a running PostgreSQL instance. Modify the `DATABASE_URL` in `database.py` to point to your database.
-
-4.  **Run the application:**
-    ```bash
-    uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    ```
-
----
-
-## Running Tests
-
-The test suite uses an in-memory SQLite database to ensure tests are fast and isolated.
-
-To run the tests (either locally or inside the Docker container):
 ```bash
-pytest
+uvicorn main:app --host 0.0.0.0 --port 58510 --reload
 ```
+
+## API Endpoints
+
+This section provides a detailed specification for each API endpoint.
+
+### General
+
+#### `GET /airports`
+
+**Description**: Get details for a list of airports by ICAO code.
+
+**Query Parameters**:
+-   `codes` (`list[str]`, optional): A list of ICAO airport codes.
+
+**Example Request**:
+`GET /airports?codes=KLAX&codes=KJFK`
+
+**Example Response**:
+A dictionary where keys are ICAO codes and values are airport details.
+```json
+{
+  "KLAX": {
+    "icao_code": "KLAX",
+    "iata_code": "LAX",
+    "name": "Los Angeles International Airport",
+    "city": "Los Angeles",
+    "country": "USA",
+    "lat": 33.942501,
+    "lon": -118.407997
+  },
+  "KJFK": {
+    "icao_code": "KJFK",
+    "iata_code": "JFK",
+    "name": "John F. Kennedy International Airport",
+    "city": "New York",
+    "country": "USA",
+    "lat": 40.639801,
+    "lon": -73.7789
+  }
+}
+```
+
+### Classification & Evaluation
+
+#### `GET /classification-results`
+
+**Description**: Get a paginated list of classification results. Can be filtered by evaluator.
+
+**Query Parameters**:
+-   `skip` (`int`, optional, default: 0): Number of records to skip for pagination.
+-   `limit` (`int`, optional, default: 100): Maximum number of records to return.
+-   `evaluator_id` (`str`, optional): Filter results assigned to a specific evaluator.
+
+**Example Request**:
+`GET /classification-results?skip=0&limit=10&evaluator_id=EVAL01`
+
+**Example Response**:
+A list of classification result objects.
+```json
+[
+  {
+    "id": 1,
+    "source_uid": "uid-123",
+    "model_version": "v1.0",
+    "predicted_category": "Weather",
+    "predicted_confidence": 0.88,
+    "final_category": "Weather",
+    "is_complete": false,
+    "evaluator_id": "EVAL01"
+  }
+]
+```
+
+#### `POST /full_classification_results_bulk`
+
+**Description**: Get full details for a bulk list of incident UIDs, including original report data and summary aggregates.
+
+**Request Body**:
+A JSON array of incident UIDs.
+```json
+[
+    "uid-1",
+    "uid-2"
+]
+```
+
+**Example Response**:
+An object containing `results` (a dictionary of full incident details keyed by UID) and `aggregates` (summary statistics for the requested incidents).
+```json
+{
+  "results": {
+    "uid-1": {
+      "id": 1,
+      "source_uid": "uid-1",
+      "model_version": "v1.0",
+      "predicted_category": "Bird Strike",
+      "predicted_confidence": 0.99,
+      "final_category": "Bird Strike",
+      "origin_uid": "uid-1",
+      "origin_date": "2023-05-10",
+      "origin_phase": "Take-off",
+      "origin_aircraft_type": "Boeing 737",
+      "origin_location": "KLAX",
+      "origin_operator": "American Airlines",
+      "origin_narrative": "The aircraft struck a bird during takeoff..."
+    }
+  },
+  "aggregates": {
+    "total_incidents": 2,
+    "unique_operators": 1,
+    "unique_aircraft_types": 2,
+    "phase_counts": {
+      "Take-off": 1,
+      "Landing": 1
+    },
+    "operator_counts": {
+      "American Airlines": 2
+    }
+  }
+}
+```
+
+#### `POST /human_evaluation/submit`
+
+**Description**: Inserts a human evaluation record for a classification result and marks the corresponding evaluation assignment as complete.
+
+**Request Body**:
+```json
+{
+  "classification_result_id": 123,
+  "evaluator_id": "EVAL01",
+  "human_category": "Weather",
+  "human_confidence": 0.95,
+  "human_reasoning": "The narrative clearly indicates severe weather conditions."
+}
+```
+
+**Example Response**:
+```json
+{
+  "status": "success",
+  "message": "Evaluation submitted"
+}
+```
+
+### Aggregation Endpoints
+
+These endpoints provide aggregated data and support a common set of filters.
+
+**Common Filters**:
+-   `operators` (`list[str]`, optional): Filter by one or more operators.
+-   `phases` (`list[str]`, optional): Filter by one or more flight phases.
+-   `aircraft_types` (`list[str]`, optional): Filter by one or more aircraft types.
+-   `locations` (`list[str]`, optional): Filter by one or more locations (ICAO codes). *(Not available on all endpoints)*
+-   `start_period` (`str`, optional): Start period in `YYYY-MM` format (e.g., "2022-01").
+-   `end_period` (`str`, optional): End period in `YYYY-MM` format (e.g., "2022-12").
 
 ---
 
-## API Specification
+#### `GET /aggregates/over-time`
 
-Below is a summary of the available endpoints. For complete details and interactive testing, please refer to the auto-generated docs at `/docs` when the application is running.
+**Description**: Provides aggregated incident counts over time (by year or month). This is useful for creating time-series visualizations.
 
-### `GET /airports`
-*   **Description:** Retrieves location and metadata for a list of airports.
-*   **Query Parameters:** `codes` (List[str]): A list of ICAO codes to look up.
-*   **Example:** `GET /airports?codes=KJFK&codes=EGLL`
+**Query Parameters**:
+-   `period` (`str`, optional, default: "month", enum: `["year", "month"]`): The time period to group by.
+-   *Plus Common Filters (excluding `locations`)*
 
-### `GET /classification-results`
-*   **Description:** Fetches a paginated list of all classification results.
-*   **Query Parameters:** `skip` (int), `limit` (int), `evaluator_id` (str, optional).
+**Example Request**:
+`GET /aggregates/over-time?period=year&operators=American+Airlines`
 
-### `POST /full_classification_results_bulk`
-*   **Description:** Retrieves the full, joined incident records for a given list of UIDs. This is the primary endpoint for populating a data table.
-*   **Request Body:** A JSON array of string UIDs. `["asrs_1", "asn_1"]`
-*   **Response:** A JSON object containing `results` (a dictionary of incident objects) and `aggregates` (summary statistics).
-
-### `GET /aggregates/over-time`
-*   **Description:** Provides time-series data of incident counts.
-*   **Query Parameters:**
-    *   `period` ('year' or 'month'): The time bucket for aggregation.
-    *   `start_period` (str, optional): Start period in `YYYY-MM` format (e.g., "2023-01").
-    *   `end_period` (str, optional): End period in `YYYY-MM` format (e.g., "2023-12").
-    *   `operators` (List[str], optional): List of operators to filter by.
-    *   `phases` (List[str], optional): List of flight phases to filter by.
-    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
-*   **Example:** `GET /aggregates/over-time?period=month&operators=American+Airlines&start_period=2023-01`
-
-### `GET /aggregates/classification-over-time`
-*   **Description:** Provides aggregated time-series data specifically for **classification results**. This is ideal for visualizing trends of specific classified incident types (e.g., "Stall", "Go-around").
-*   **Query Parameters:**
-    *   `period` ('year' or 'month'): The time bucket for aggregation.
-    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
-    *   `end_period` (str, optional): End period in `YYYY-MM` format.
-    *   `classifications` (List[str], optional): List of classification categories to filter by.
-    *   `phases` (List[str], optional): List of flight phases to filter by.
-    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
-    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
-*   **Example:** `GET /aggregates/classification-over-time?classifications=Stall&phases=approach`
-
-### `GET /aggregates/top-n`
-*   **Description:** Gets the top N most frequent items for a given category.
-*   **Query Parameters:**
-    *   `category` ('operator', 'aircraft_type', 'phase', 'location'): The category to rank.
-    *   `n` (int): The number of results to return.
-    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
-    *   `end_period` (str, optional): End period in `YYYY-MM` format.
-    *   `operators` (List[str], optional): List of operators to filter by.
-    *   `phases` (List[str], optional): List of flight phases to filter by.
-    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
-    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
-*   **Example:** `GET /aggregates/top-n?category=aircraft_type&n=5&phases=approach`
-
-### `GET /incidents/locations`
-*   **Description:** Provides geolocated incidents for map visualizations.
-*   **Query Parameters:**
-    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
-    *   `end_period` (str, optional): End period in `YYYY-MM` format.
-    *   `operators` (List[str], optional): List of operators to filter by.
-    *   `phases` (List[str], optional): List of flight phases to filter by.
-    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
-*   **Example:** `GET /incidents/locations?start_period=2023-01&end_period=2023-03`
-
-### `GET /aggregates/heatmap`
-*   **Description:** Provides 2D aggregated data for generating a correlation heatmap.
-*   **Query Parameters:**
-    *   `dimension1`, `dimension2` ('operator', 'aircraft_type', 'phase'): The two categories to cross-tabulate.
-    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
-    *   `end_period` (str, optional): End period in `YYYY-MM` format.
-    *   `operators` (List[str], optional): List of operators to filter by.
-    *   `phases` (List[str], optional): List of flight phases to filter by.
-    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
-    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
-*   **Example:** `GET /aggregates/heatmap?dimension1=phase&dimension2=aircraft_type&operators=Delta+Air+Lines`
-
-### `GET /aggregates/hierarchy`
-*   **Description:** Provides data grouped by operator, aircraft type, and phase for hierarchical charts (e.g., sunburst).
-*   **Query Parameters:**
-    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
-    *   `end_period` (str, optional): End period in `YYYY-MM` format.
-    *   `operators` (List[str], optional): List of operators to filter by.
-    *   `phases` (List[str], optional): List of flight phases to filter by.
-    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
-    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
-
-### `GET /aggregates/statistics`
-*   **Description:** Provides high-level summary statistics, like total incident count.
-*   **Query Parameters:**
-    *   `start_period` (str, optional): Start period in `YYYY-MM` format.
-    *   `end_period` (str, optional): End period in `YYYY-MM` format.
-    *   `operators` (List[str], optional): List of operators to filter by.
-    *   `phases` (List[str], optional): List of flight phases to filter by.
-    *   `aircraft_types` (List[str], optional): List of aircraft types to filter by.
-    *   `locations` (List[str], optional): List of location ICAO codes to filter by.
-
-### `POST /human_evaluation/submit`
-*   **Description:** Submits a human evaluation for a specific classification result.
-*   **Request Body:** A JSON object with evaluation details.
-
+**Example Response**:
+A list of objects, each containing a time period and the corresponding incident count.
+```json
+[
+  {
+    "period_start": "2022",
+    "incident_count": 150
+  },
+  {
+    "period_start": "2023",
+    "incident_count": 175
+  }
+]
 ```
 
-### 2. New `Dockerfile`
+#### `GET /aggregates/top-n`
 
-This file contains the instructions to build a Docker image for your FastAPI application.
+**Description**: Provides a list of the top N most frequent items for a given category, such as 'operator', 'aircraft_type', or 'phase'.
 
-```diff
+**Query Parameters**:
+-   `category` (`str`, required, enum: `["operator", "aircraft_type", "phase"]`): The category to aggregate.
+-   `n` (`int`, optional, default: 10): The number of top results to return.
+-   *Plus Common Filters (all available)*
+
+**Example Request**:
+`GET /aggregates/top-n?category=aircraft_type&n=5`
+
+**Example Response**:
+A list of objects, each containing a category value and its incident count.
+```json
+[
+  {
+    "category_value": "Boeing 737",
+    "incident_count": 500
+  },
+  {
+    "category_value": "Airbus A320",
+    "incident_count": 450
+  }
+]
+```
+
+#### `GET /aggregates/classification-over-time`
+
+**Description**: Provides aggregated time-series data for classification results, supporting filtering by classification, phase, location, and aircraft type.
+
+**Query Parameters**:
+-   `period` (`str`, optional, default: "month", enum: `["year", "month"]`): The time period to group by.
+-   `final_categories` (`list[str]`, optional): Filter by one or more final classification categories.
+-   *Plus Common Filters (excluding `operators`)*
+
+**Example Request**:
+`GET /aggregates/classification-over-time?period=month&final_categories=Bird+Strike`
+
+**Example Response**:
+A list of objects, each containing a time period and the corresponding incident count.
+```json
+[
+  {
+    "period_start": "2023-01",
+    "incident_count": 12
+  },
+  {
+    "period_start": "2023-02",
+    "incident_count": 9
+  }
+]
+```
+
+#### `GET /aggregates/hierarchy`
+
+**Description**: Provides data grouped by operator, aircraft_type, and phase, suitable for hierarchical visualizations like sunburst or treemap charts.
+
+**Query Parameters**:
+-   *Common Filters (all available)*
+
+**Example Request**:
+`GET /aggregates/hierarchy?operators=Delta+Air+Lines`
+
+**Example Response**:
+A list of objects, each representing a unique combination of operator, aircraft type, and phase with its incident count.
+```json
+[
+  {
+    "operator": "Delta Air Lines",
+    "aircraft_type": "Boeing 737",
+    "phase": "Cruise",
+    "incident_count": 5
+  },
+  {
+    "operator": "Delta Air Lines",
+    "aircraft_type": "Airbus A321",
+    "phase": "Landing",
+    "incident_count": 3
+  }
+]
+```
+
+#### `GET /aggregates/heatmap`
+
+**Description**: Provides aggregated data suitable for a heatmap visualization, showing the relationship between two categorical dimensions.
+
+**Query Parameters**:
+-   `dimension1` (`str`, required, enum: `["operator", "aircraft_type", "phase"]`): The first dimension for the heatmap.
+-   `dimension2` (`str`, required, enum: `["operator", "aircraft_type", "phase"]`): The second dimension for the heatmap.
+-   *Plus Common Filters (all available)*
+
+**Example Request**:
+`GET /aggregates/heatmap?dimension1=phase&dimension2=aircraft_type`
+
+**Example Response**:
+A list of objects, each representing a cell in the heatmap with its incident count.
+```json
+[
+  {
+    "dim1_value": "Take-off",
+    "dim2_value": "Boeing 737",
+    "incident_count": 150
+  },
+  {
+    "dim1_value": "Landing",
+    "dim2_value": "Airbus A320",
+    "incident_count": 120
+  }
+]
+```
+
+#### `GET /aggregates/statistics`
+
+**Description**: Provides high-level summary statistics, including the total number of incidents.
+
+**Query Parameters**:
+-   *Common Filters (all available)*
+
+**Example Request**:
+`GET /aggregates/statistics?start_period=2022-01&end_period=2022-12`
+
+**Example Response**:
+An object containing the total number of incidents matching the filters.
+```json
+{
+  "total_incidents": 1234
+}
+```
+
+### Geographic Endpoints
+
+#### `GET /incidents/locations`
+
+**Description**: Provides a list of incidents with their geographic coordinates, suitable for map visualizations.
+
+**Query Parameters**:
+-   *Plus Common Filters (excluding `locations`)*
+
+**Example Request**:
+`GET /incidents/locations?start_period=2023-01&end_period=2023-03`
+
+**Example Response**:
+A list of incident objects with geographic information.
+```json
+[
+  {
+    "uid": "asn-123",
+    "summary": "Aircraft experienced engine failure during climb...",
+    "origin_date": "2023-01-15",
+    "operator": "United Airlines",
+    "lat": 40.6413,
+    "lon": -73.7781,
+    "location_name": "John F Kennedy International Airport"
+  }
+]
+```

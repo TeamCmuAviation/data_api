@@ -296,7 +296,7 @@ async def get_classification_aggregates_over_time(
     period: Literal["year", "month"] = Query(
         default="month", description="The time period to group by ('year' or 'month')."
     ),
-    classifications: List[str] | None = Query(default=None, description="Filter by one or more classification categories."),
+    final_categories: List[str] | None = Query(default=None, description="Filter by one or more final classification categories."),
     phases: List[str] | None = Query(default=None, description="Filter by one or more flight phases."),
     locations: List[str] | None = Query(default=None, description="Filter by one or more locations (ICAO codes)."),
     aircraft_types: List[str] | None = Query(default=None, description="Filter by one or more aircraft types."),
@@ -316,10 +316,9 @@ async def get_classification_aggregates_over_time(
     params: Dict[str, Any] = {}
     where_clauses = ["inc.origin_date IS NOT NULL"]
 
-    if classifications:
-        # Assuming 'category' is the classification column in 'classification_results'
-        where_clauses.append("cr.category IN :classifications")
-        params["classifications"] = tuple(classifications)
+    if final_categories:
+        where_clauses.append("inc.final_category IN :final_categories")
+        params["final_categories"] = tuple(final_categories)
     if phases:
         where_clauses.append("inc.phase IN :phases")
         params["phases"] = tuple(phases)
@@ -345,13 +344,13 @@ async def get_classification_aggregates_over_time(
 
     query = text(f"""
         WITH classified_incidents AS (
-            SELECT cr.category, origin.sanitized_date AS origin_date, origin.phase, origin.aircraft_type, origin.location
+            SELECT cr.final_category, origin.sanitized_date AS origin_date, origin.phase, origin.aircraft_type, origin.location
             FROM classification_results cr JOIN asn_scraped_accidents origin ON cr.source_uid = origin.uid
             UNION ALL
-            SELECT cr.category, origin.sanitized_date AS origin_date, origin.phase, origin.aircraft_type, origin.place AS location
+            SELECT cr.final_category, origin.sanitized_date AS origin_date, origin.phase, origin.aircraft_type, origin.place AS location
             FROM classification_results cr JOIN asrs_records origin ON cr.source_uid = origin.uid
             UNION ALL
-            SELECT cr.category, origin.sanitized_date AS origin_date, NULL AS phase, origin.aircraft_type, origin.location
+            SELECT cr.final_category, origin.sanitized_date AS origin_date, NULL AS phase, origin.aircraft_type, origin.location
             FROM classification_results cr JOIN pci_scraped_accidents origin ON cr.source_uid = origin.uid
         )
         SELECT
