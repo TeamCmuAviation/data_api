@@ -196,10 +196,10 @@ A list of objects, each containing a time period and the corresponding incident 
 
 #### `GET /aggregates/top-n`
 
-**Description**: Provides a list of the top N most frequent items for a given category, such as 'operator', 'aircraft_type', or 'phase'.
+**Description**: Provides a list of the top N most frequent items for a given category, such as 'operator', 'aircraft_type', 'phase', 'location', or 'final_category'.
 
 **Query Parameters**:
--   `category` (`str`, required, enum: `["operator", "aircraft_type", "phase", "final_category"]`): The category to aggregate.
+-   `category` (`str`, required, enum: `["operator", "aircraft_type", "phase", "final_category", "location"]`): The category to aggregate.
 -   `n` (`int`, optional, default: 10): The number of top results to return.
 -   *Plus Common Filters (all available)*
 

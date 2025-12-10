@@ -259,13 +259,13 @@ async def get_top_n_aggregates(
     if start_period:
         year, month = map(int, start_period.split('-'))
         start_date = date(year, month, 1)
-        where_clauses.append("sanitized_date >= :start_date")
+        where_clauses.append("origin_date >= :start_date")
         params["start_date"] = start_date
     if end_period:
         year, month = map(int, end_period.split('-'))
         _, last_day = calendar.monthrange(year, month)
         end_date = date(year, month, last_day)
-        where_clauses.append("sanitized_date <= :end_date")
+        where_clauses.append("origin_date <= :end_date")
         params["end_date"] = end_date
 
     where_sql = " AND ".join(where_clauses)
@@ -275,24 +275,24 @@ async def get_top_n_aggregates(
     if category == "final_category":
         cte_sql = """
             WITH all_incidents AS (
-                SELECT cr.final_category, origin.operator, origin.sanitized_date, origin.phase, origin.aircraft_type, origin.location
+                SELECT cr.final_category, origin.operator, origin.sanitized_date AS origin_date, origin.phase, origin.aircraft_type, origin.location
                 FROM classification_results cr JOIN public.asn_scraped_accidents origin ON cr.source_uid = origin.uid
                 UNION ALL
-                SELECT cr.final_category, origin.operator, origin.sanitized_date, origin.phase, origin.aircraft_type, origin.place AS location
+                SELECT cr.final_category, origin.operator, origin.sanitized_date AS origin_date, origin.phase, origin.aircraft_type, origin.place AS location
                 FROM classification_results cr JOIN public.asrs_records origin ON cr.source_uid = origin.uid
                 UNION ALL
-                SELECT cr.final_category, origin.operator, origin.sanitized_date, NULL AS phase, origin.aircraft_type, origin.location
+                SELECT cr.final_category, origin.operator, origin.sanitized_date AS origin_date, NULL AS phase, origin.aircraft_type, origin.location
                 FROM classification_results cr JOIN public.pci_scraped_accidents origin ON cr.source_uid = origin.uid
             )
         """
     else:
         cte_sql = """
             WITH all_incidents AS (
-                SELECT sanitized_date, operator, phase, aircraft_type, location FROM asn_scraped_accidents
+                SELECT sanitized_date AS origin_date, operator, phase, aircraft_type, location FROM asn_scraped_accidents
                 UNION ALL
-                SELECT sanitized_date, operator, phase, aircraft_type, place AS location FROM asrs_records
+                SELECT sanitized_date AS origin_date, operator, phase, aircraft_type, place AS location FROM asrs_records
                 UNION ALL
-                SELECT sanitized_date, operator, NULL AS phase, aircraft_type, location FROM pci_scraped_accidents
+                SELECT sanitized_date AS origin_date, operator, NULL AS phase, aircraft_type, location FROM pci_scraped_accidents
             )
         """
 

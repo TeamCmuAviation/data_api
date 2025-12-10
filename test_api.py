@@ -353,6 +353,42 @@ async def test_get_top_n_aggregates_by_final_category(client):
 
 
 @pytest.mark.asyncio
+async def test_get_top_n_aggregates_by_final_category_with_date_filter(client):
+    """
+    Tests the top-n aggregation for 'final_category' with a date range filter.
+    """
+    # Filter for January 2024 - should only include the two 'Weather' incidents
+    response_jan = await client.get(
+        "/aggregates/top-n",
+        params={"category": "final_category", "n": 5, "start_period": "2024-01", "end_period": "2024-01"}
+    )
+    assert response_jan.status_code == 200
+    data_jan = response_jan.json()
+    assert len(data_jan) == 1
+    assert data_jan[0]["category_value"] == "Weather"
+    assert data_jan[0]["incident_count"] == 2
+
+    # Filter for February 2024 - should only include the 'Bird Strike' incident
+    response_feb = await client.get(
+        "/aggregates/top-n",
+        params={"category": "final_category", "n": 5, "start_period": "2024-02", "end_period": "2024-02"}
+    )
+    assert response_feb.status_code == 200
+    data_feb = response_feb.json()
+    assert len(data_feb) == 1
+    assert data_feb[0]["category_value"] == "Bird Strike"
+    assert data_feb[0]["incident_count"] == 1
+
+    # Filter for a period with no incidents
+    response_empty = await client.get(
+        "/aggregates/top-n",
+        params={"category": "final_category", "n": 5, "start_period": "2025-01", "end_period": "2025-01"}
+    )
+    assert response_empty.status_code == 200
+    assert response_empty.json() == []
+
+
+@pytest.mark.asyncio
 async def test_get_incident_locations(client):
     async with TestingSessionLocal() as session:
         await session.execute(text("""
