@@ -256,6 +256,40 @@ async def test_full_classification_results_bulk_empty(client):
 
 
 @pytest.mark.asyncio
+async def test_get_classified_incidents_with_details(client):
+    """
+    Tests the new endpoint for getting detailed, sorted, paginated classification results.
+    """
+    response = await client.get("/incidents/classified-detailed?limit=5")
+    assert response.status_code == 200
+    data = response.json()
+
+    # Based on seed data, we have 3 classified incidents.
+    # asn_1 (2024-02-02), asrs_2 (2024-01-15), asrs_1 (2024-01-01)
+    assert len(data) == 3
+
+    # Check if sorted by date descending
+    assert data[0]["source_uid"] == "asn_1"
+    assert data[0]["origin_date"] == "2024-02-02"
+    assert data[0]["final_category"] == "Bird Strike"
+
+    assert data[1]["source_uid"] == "asrs_2"
+    assert data[1]["origin_date"] == "2024-01-15"
+    assert data[1]["final_category"] == "Weather"
+
+    assert data[2]["source_uid"] == "asrs_1"
+    assert data[2]["origin_date"] == "2024-01-01"
+    assert data[2]["final_category"] == "Weather"
+
+    # Test pagination (limit)
+    response_limit = await client.get("/incidents/classified-detailed?limit=1")
+    assert response_limit.status_code == 200
+    data_limit = response_limit.json()
+    assert len(data_limit) == 1
+    assert data_limit[0]["source_uid"] == "asn_1"
+
+
+@pytest.mark.asyncio
 async def test_submit_human_evaluation(client):
     payload = {
         "classification_result_id": 101,

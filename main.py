@@ -131,6 +131,62 @@ async def get_full_classification_results_bulk(
     return {"results": {row["source_uid"]: row for row in results}, "aggregates": aggregates}
 
 
+@app.get("/incidents/classified-detailed")
+async def get_classified_incidents_with_details(
+    skip: int = Query(default=0, ge=0, description="Number of records to skip for pagination."),
+    limit: int = Query(default=10, gt=0, le=100, description="Maximum number of records to return."),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retrieves a paginated list of the most recent classified incidents, including
+    key details like date, operator, phase, aircraft type, and final classification.
+    """
+    query = text("""
+        WITH all_classified_incidents AS (
+            SELECT
+                cr.id, cr.source_uid, cr.final_category,
+                origin.sanitized_date AS origin_date,
+                origin.phase AS origin_phase,
+                origin.aircraft_type AS origin_aircraft_type,
+                origin.operator AS origin_operator
+            FROM classification_results cr
+            JOIN asn_scraped_accidents origin ON origin.uid = cr.source_uid
+
+            UNION ALL
+
+            SELECT
+                cr.id, cr.source_uid, cr.final_category,
+                origin.sanitized_date AS origin_date,
+                origin.phase AS origin_phase,
+                origin.aircraft_type AS origin_aircraft_type,
+                origin.operator AS origin_operator
+            FROM classification_results cr
+            JOIN asrs_records origin ON origin.uid = cr.source_uid
+
+            UNION ALL
+
+            SELECT
+                cr.id, cr.source_uid, cr.final_category,
+                origin.sanitized_date AS origin_date,
+                NULL AS origin_phase,
+                origin.aircraft_type AS origin_aircraft_type,
+                origin.operator AS origin_operator
+            FROM classification_results cr
+            JOIN pci_scraped_accidents origin ON cr.source_uid = origin.uid
+        )
+        SELECT *
+        FROM all_classified_incidents
+        WHERE origin_date IS NOT NULL
+        ORDER BY origin_date DESC
+        OFFSET :skip
+        LIMIT :limit
+    """)
+
+    params = {"skip": skip, "limit": limit}
+    result = await db.execute(query, params)
+    return [dict(row) for row in result.mappings().all()]
+
+
 @app.get("/aggregates/over-time")
 async def get_aggregates_over_time(
     period: Literal["year", "month"] = Query(
