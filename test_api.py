@@ -80,14 +80,15 @@ async def setup_database():
             CREATE TABLE classification_results (
                 id SERIAL PRIMARY KEY,
                 source_uid TEXT,
-                final_category TEXT
+                final_category TEXT,
+                predicted_confidence REAL
             )
         """))
         await conn.execute(text("""
-            INSERT INTO classification_results (id, source_uid, final_category)
-            VALUES (1, 'asrs_1', 'Weather'),
-                   (2, 'asn_1', 'Bird Strike'),
-                   (3, 'asrs_2', 'Weather')
+            INSERT INTO classification_results (id, source_uid, final_category, predicted_confidence)
+            VALUES (1, 'asrs_1', 'Weather', 0.91),
+                   (2, 'asn_1', 'Bird Strike', 0.98),
+                   (3, 'asrs_2', 'Weather', 0.92)
         """))
 
         # ASRS
@@ -272,14 +273,17 @@ async def test_get_classified_incidents_with_details(client):
     assert data[0]["source_uid"] == "asn_1"
     assert data[0]["origin_date"] == "2024-02-02"
     assert data[0]["final_category"] == "Bird Strike"
+    assert data[0]["final_confidence"] == 0.98
 
     assert data[1]["source_uid"] == "asrs_2"
     assert data[1]["origin_date"] == "2024-01-15"
     assert data[1]["final_category"] == "Weather"
+    assert data[1]["final_confidence"] == 0.92
 
     assert data[2]["source_uid"] == "asrs_1"
     assert data[2]["origin_date"] == "2024-01-01"
     assert data[2]["final_category"] == "Weather"
+    assert data[2]["final_confidence"] == 0.91
 
     # Test pagination (limit)
     response_limit = await client.get("/incidents/classified-detailed?limit=1")
@@ -287,6 +291,7 @@ async def test_get_classified_incidents_with_details(client):
     data_limit = response_limit.json()
     assert len(data_limit) == 1
     assert data_limit[0]["source_uid"] == "asn_1"
+    assert data_limit[0]["final_confidence"] == 0.98
 
 
 @pytest.mark.asyncio
