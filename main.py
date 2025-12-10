@@ -144,7 +144,7 @@ async def get_classified_incidents_with_details(
     query = text("""
         WITH all_classified_incidents AS (
             SELECT
-                cr.id, cr.source_uid, cr.final_category, cr.predicted_confidence AS final_confidence,
+                cr.id, cr.source_uid, cr.final_category, cr.final_confidence,
                 origin.sanitized_date AS origin_date,
                 origin.phase AS origin_phase,
                 origin.aircraft_type AS origin_aircraft_type,
@@ -155,7 +155,7 @@ async def get_classified_incidents_with_details(
             UNION ALL
 
             SELECT
-                cr.id, cr.source_uid, cr.final_category, cr.predicted_confidence AS final_confidence,
+                cr.id, cr.source_uid, cr.final_category, cr.final_confidence,
                 origin.sanitized_date AS origin_date,
                 origin.phase AS origin_phase,
                 origin.aircraft_type AS origin_aircraft_type,
@@ -166,7 +166,7 @@ async def get_classified_incidents_with_details(
             UNION ALL
 
             SELECT
-                cr.id, cr.source_uid, cr.final_category, cr.predicted_confidence AS final_confidence,
+                cr.id, cr.source_uid, cr.final_category, cr.final_confidence,
                 origin.sanitized_date AS origin_date,
                 NULL AS origin_phase,
                 origin.aircraft_type AS origin_aircraft_type,
