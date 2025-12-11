@@ -11,10 +11,12 @@ from database import get_db
 import pandas as pd
 
 import aggregates
+import reports
 
 app = FastAPI()
 
 app.include_router(aggregates.router)
+app.include_router(reports.router)
 
 @app.get("/airports")
 async def get_airports(
@@ -96,7 +98,7 @@ async def get_full_classification_results_bulk(
 
     # The CTE combines all sources first, filtering by the primary UID list.
     # The secondary filters (location, operator) are applied to the combined result set.
-    query = text(f"""
+    query_str = f"""
         WITH combined_results AS (
             SELECT
                 cr.*,
@@ -134,7 +136,13 @@ async def get_full_classification_results_bulk(
         )
         SELECT * FROM combined_results
         WHERE {where_sql}
-    """)
+    """
+
+    query = text(query_str).bindparams(bindparam("uids", expanding=True))
+    if request.locations:
+        query = query.bindparams(bindparam("locations", expanding=True))
+    if request.operators:
+        query = query.bindparams(bindparam("operators", expanding=True))
 
     result = await db.execute(query, params)
     results = [dict(row) for row in result.mappings().all()]
@@ -268,7 +276,7 @@ async def get_aggregates_over_time(
 
     # This query unions the dates from the different source tables
     # before performing the aggregation.
-    query = text(f"""
+    query_str = f"""
         WITH all_incidents AS (
             SELECT sanitized_date AS origin_date, operator, phase, aircraft_type
             FROM public.asn_scraped_accidents
@@ -286,7 +294,15 @@ async def get_aggregates_over_time(
         WHERE {where_sql}
         GROUP BY period_start
         ORDER BY period_start;
-    """)
+    """
+
+    query = text(query_str)
+    if operators:
+        query = query.bindparams(bindparam("operators", expanding=True))
+    if phases:
+        query = query.bindparams(bindparam("phases", expanding=True))
+    if aircraft_types:
+        query = query.bindparams(bindparam("aircraft_types", expanding=True))
     result = await db.execute(query, params)
     return [dict(row) for row in result.mappings().all()]
 
@@ -376,7 +392,7 @@ async def get_top_n_aggregates(
             )
         """
 
-    query = text(f"""
+    query_str = f"""
         {cte_sql}
         SELECT
             {group_by_col} AS category_value,
@@ -386,8 +402,17 @@ async def get_top_n_aggregates(
         GROUP BY {group_by_col}
         ORDER BY incident_count DESC
         LIMIT :n;
-    """)
+    """
 
+    query = text(query_str)
+    if operators:
+        query = query.bindparams(bindparam("operators", expanding=True))
+    if phases:
+        query = query.bindparams(bindparam("phases", expanding=True))
+    if aircraft_types:
+        query = query.bindparams(bindparam("aircraft_types", expanding=True))
+    if locations:
+        query = query.bindparams(bindparam("locations", expanding=True))
     result = await db.execute(query, params)
     return [dict(row) for row in result.mappings().all()]
 
@@ -429,9 +454,6 @@ async def get_classification_aggregates_over_time(
     if aircraft_types:
         where_clauses.append("inc.aircraft_type IN :aircraft_types")
         params["aircraft_types"] = tuple(aircraft_types)
-    if locations:
-        where_clauses.append("inc.location IN :locations")
-        params["locations"] = tuple(locations)
     if start_period:
         year, month = map(int, start_period.split('-'))
         start_date = date(year, month, 1)
@@ -446,7 +468,7 @@ async def get_classification_aggregates_over_time(
 
     where_sql = " AND ".join(where_clauses)
 
-    query = text(f"""
+    query_str = f"""
         WITH classified_incidents AS (
             SELECT cr.final_category, origin.sanitized_date AS origin_date, origin.phase, origin.aircraft_type, origin.location
             FROM classification_results cr JOIN asn_scraped_accidents origin ON cr.source_uid = origin.uid
@@ -464,7 +486,18 @@ async def get_classification_aggregates_over_time(
         WHERE {where_sql}
         GROUP BY period_start
         ORDER BY period_start;
-    """)
+    """
+
+    query = text(query_str)
+    if final_categories:
+        query = query.bindparams(bindparam("final_categories", expanding=True))
+    if phases:
+        query = query.bindparams(bindparam("phases", expanding=True))
+    if locations:
+        query = query.bindparams(bindparam("locations", expanding=True))
+    if aircraft_types:
+        query = query.bindparams(bindparam("aircraft_types", expanding=True))
+
     result = await db.execute(query, params)
     return [dict(row) for row in result.mappings().all()]
 
@@ -508,7 +541,7 @@ async def get_incident_locations(
 
     where_sql = " AND ".join(where_clauses)
 
-    query = text(f"""
+    query_str = f"""
         WITH all_incidents AS (
             SELECT uid, narrative AS summary, sanitized_date AS origin_date, phase, aircraft_type,
                 location, operator
@@ -529,8 +562,15 @@ async def get_incident_locations(
         LEFT JOIN airport_location al ON inc.location = al.icao_code
         WHERE {where_sql}
         ORDER BY inc.origin_date DESC;
-    """)
+    """
 
+    query = text(query_str)
+    if operators:
+        query = query.bindparams(bindparam("operators", expanding=True))
+    if phases:
+        query = query.bindparams(bindparam("phases", expanding=True))
+    if aircraft_types:
+        query = query.bindparams(bindparam("aircraft_types", expanding=True))
     result = await db.execute(query, params)
     return [dict(row) for row in result.mappings().all()]
 
@@ -578,7 +618,7 @@ async def get_hierarchy_aggregates(
 
     where_sql = " AND ".join(where_clauses)
 
-    query = text(f"""
+    query_str = f"""
         WITH all_incidents AS (
             SELECT sanitized_date AS origin_date, operator, phase, aircraft_type, location FROM asn_scraped_accidents
             UNION ALL
@@ -590,7 +630,17 @@ async def get_hierarchy_aggregates(
         FROM all_incidents
         WHERE {where_sql}
         GROUP BY operator, aircraft_type, phase;
-    """)
+    """
+
+    query = text(query_str)
+    if operators:
+        query = query.bindparams(bindparam("operators", expanding=True))
+    if phases:
+        query = query.bindparams(bindparam("phases", expanding=True))
+    if aircraft_types:
+        query = query.bindparams(bindparam("aircraft_types", expanding=True))
+    if locations:
+        query = query.bindparams(bindparam("locations", expanding=True))
     result = await db.execute(query, params)
     return [dict(row) for row in result.mappings().all()]
 
@@ -639,7 +689,7 @@ async def get_locations_over_time_aggregates(
 
     where_sql = " AND ".join(where_clauses)
 
-    query = text(f"""
+    query_str = f"""
         WITH all_incidents AS (
             SELECT sanitized_date AS origin_date, operator, phase, aircraft_type, location FROM asn_scraped_accidents
             UNION ALL
@@ -656,7 +706,17 @@ async def get_locations_over_time_aggregates(
         WHERE {where_sql}
         GROUP BY al.lat, al.lon, al.name, period
         ORDER BY period, incident_count DESC;
-    """)
+    """
+
+    query = text(query_str)
+    if operators:
+        query = query.bindparams(bindparam("operators", expanding=True))
+    if phases:
+        query = query.bindparams(bindparam("phases", expanding=True))
+    if aircraft_types:
+        query = query.bindparams(bindparam("aircraft_types", expanding=True))
+    if locations:
+        query = query.bindparams(bindparam("locations", expanding=True))
     result = await db.execute(query, params)
     return [dict(row) for row in result.mappings().all()]
 
@@ -699,7 +759,7 @@ async def get_aggregates_by_location(
 
     where_sql = " AND ".join(where_clauses)
 
-    query = text(f"""
+    query_str = f"""
         WITH all_incidents AS (
             SELECT sanitized_date AS origin_date, operator, phase, aircraft_type, location FROM asn_scraped_accidents
             UNION ALL
@@ -712,7 +772,15 @@ async def get_aggregates_by_location(
         WHERE {where_sql}
         GROUP BY location
         ORDER BY incident_count DESC;
-    """)
+    """
+
+    query = text(query_str)
+    if operators:
+        query = query.bindparams(bindparam("operators", expanding=True))
+    if phases:
+        query = query.bindparams(bindparam("phases", expanding=True))
+    if aircraft_types:
+        query = query.bindparams(bindparam("aircraft_types", expanding=True))
     result = await db.execute(query, params)
     return [dict(row) for row in result.mappings().all()]
 
@@ -773,7 +841,7 @@ async def get_heatmap_aggregates(
 
     where_sql = " AND ".join(where_clauses)
 
-    query = text(f"""
+    query_str = f"""
         WITH all_incidents AS (
             SELECT sanitized_date AS origin_date, operator, phase, aircraft_type, location FROM asn_scraped_accidents
             UNION ALL
@@ -789,8 +857,17 @@ async def get_heatmap_aggregates(
         WHERE {where_sql}
         GROUP BY {dim1_col}, {dim2_col}
         ORDER BY incident_count DESC;
-    """)
+    """
 
+    query = text(query_str)
+    if operators:
+        query = query.bindparams(bindparam("operators", expanding=True))
+    if phases:
+        query = query.bindparams(bindparam("phases", expanding=True))
+    if aircraft_types:
+        query = query.bindparams(bindparam("aircraft_types", expanding=True))
+    if locations:
+        query = query.bindparams(bindparam("locations", expanding=True))
     result = await db.execute(query, params)
     return [dict(row) for row in result.mappings().all()]
 
@@ -837,7 +914,7 @@ async def get_statistics(
 
     where_sql = " AND ".join(where_clauses)
 
-    query = text(f"""
+    query_str = f"""
         WITH all_incidents AS (
             SELECT uid, sanitized_date, operator, phase, aircraft_type, location FROM public.asn_scraped_accidents
             UNION ALL
@@ -846,8 +923,17 @@ async def get_statistics(
             SELECT uid, sanitized_date, operator, NULL as phase, aircraft_type, location FROM public.pci_scraped_accidents
         )
         SELECT COUNT(*) as total_incidents FROM all_incidents WHERE {where_sql};
-    """)
+    """
 
+    query = text(query_str)
+    if operators:
+        query = query.bindparams(bindparam("operators", expanding=True))
+    if phases:
+        query = query.bindparams(bindparam("phases", expanding=True))
+    if aircraft_types:
+        query = query.bindparams(bindparam("aircraft_types", expanding=True))
+    if locations:
+        query = query.bindparams(bindparam("locations", expanding=True))
     result = await db.execute(query, params)
     stats = result.mappings().first()
 
