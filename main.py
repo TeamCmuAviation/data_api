@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 from datetime import datetime, date, timezone
 
 import calendar
@@ -69,54 +69,74 @@ async def get_classification_results(
     return [dict(row) for row in result.mappings().all()]
 
 
+class FullClassificationBulkRequest(pydantic.BaseModel):
+    uids: List[str]
+    locations: Optional[List[str]] = None
+    operators: Optional[List[str]] = None
+
+
 @app.post("/full_classification_results_bulk")
 async def get_full_classification_results_bulk(
-    uids: List[str], db: AsyncSession = Depends(get_db)
+    request: FullClassificationBulkRequest, db: AsyncSession = Depends(get_db)
 ):
-    if not uids:
+    if not request.uids:
         return {"results": {}, "aggregates": {}}
     
-    # This single, powerful query replaces the three separate queries.
-    # It uses UNION ALL to combine results from different source tables.
-    # NOTE: This query is compatible with both PostgreSQL and SQLite.
-    # The aggregation is still done in Python to maintain this compatibility.
-    query = text("""
-        SELECT
-            cr.*,
-            origin.uid AS origin_uid, origin.sanitized_date AS origin_date,
-            origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type,
-            origin.location AS origin_location, origin.operator AS origin_operator,
-            origin.narrative AS origin_narrative
-        FROM classification_results cr
-        JOIN asn_scraped_accidents origin ON origin.uid = cr.source_uid
-        WHERE cr.source_uid IN :uids
+    params: Dict[str, Any] = {"uids": tuple(request.uids)}
+    where_clauses = ["1=1"]  # Start with a truthy clause
 
-        UNION ALL
+    if request.locations:
+        where_clauses.append("origin_location IN :locations")
+        params["locations"] = tuple(request.locations)
+    if request.operators:
+        where_clauses.append("origin_operator IN :operators")
+        params["operators"] = tuple(request.operators)
 
-        SELECT
-            cr.*,
-            origin.uid AS origin_uid, origin.sanitized_date AS origin_date,
-            origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type,
-            origin.place AS origin_location, origin.operator AS origin_operator,
-            origin.synopsis AS origin_narrative
-        FROM classification_results cr
-        JOIN asrs_records origin ON origin.uid = cr.source_uid
-        WHERE cr.source_uid IN :uids
-    
-        UNION ALL
-    
-        SELECT
-            cr.*,
-            origin.uid AS origin_uid, origin.sanitized_date AS origin_date,
-            NULL AS origin_phase, origin.aircraft_type AS origin_aircraft_type,
-            origin.location AS origin_location, origin.operator AS origin_operator,
-            origin.summary AS origin_narrative
-        FROM classification_results cr
-        JOIN pci_scraped_accidents origin ON origin.uid = cr.source_uid
-        WHERE cr.source_uid IN :uids
-    """).bindparams(bindparam("uids", expanding=True))
+    where_sql = " AND ".join(where_clauses)
 
-    result = await db.execute(query, {"uids": tuple(uids)})
+    # The CTE combines all sources first, filtering by the primary UID list.
+    # The secondary filters (location, operator) are applied to the combined result set.
+    query = text(f"""
+        WITH combined_results AS (
+            SELECT
+                cr.*,
+                origin.uid AS origin_uid, origin.sanitized_date AS origin_date,
+                origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type,
+                origin.location AS origin_location, origin.operator AS origin_operator,
+                origin.narrative AS origin_narrative
+            FROM classification_results cr
+            JOIN asn_scraped_accidents origin ON origin.uid = cr.source_uid
+            WHERE cr.source_uid IN :uids
+
+            UNION ALL
+
+            SELECT
+                cr.*,
+                origin.uid AS origin_uid, origin.sanitized_date AS origin_date,
+                origin.phase AS origin_phase, origin.aircraft_type AS origin_aircraft_type,
+                origin.place AS origin_location, origin.operator AS origin_operator,
+                origin.synopsis AS origin_narrative
+            FROM classification_results cr
+            JOIN asrs_records origin ON origin.uid = cr.source_uid
+            WHERE cr.source_uid IN :uids
+        
+            UNION ALL
+        
+            SELECT
+                cr.*,
+                origin.uid AS origin_uid, origin.sanitized_date AS origin_date,
+                NULL AS origin_phase, origin.aircraft_type AS origin_aircraft_type,
+                origin.location AS origin_location, origin.operator AS origin_operator,
+                origin.summary AS origin_narrative
+            FROM classification_results cr
+            JOIN pci_scraped_accidents origin ON origin.uid = cr.source_uid
+            WHERE cr.source_uid IN :uids
+        )
+        SELECT * FROM combined_results
+        WHERE {where_sql}
+    """)
+
+    result = await db.execute(query, params)
     results = [dict(row) for row in result.mappings().all()]
 
     # Aggregation is still performed in pandas to maintain compatibility with SQLite tests
