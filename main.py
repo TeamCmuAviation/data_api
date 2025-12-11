@@ -10,8 +10,11 @@ import uvicorn
 from database import get_db
 import pandas as pd
 
+import aggregates
+
 app = FastAPI()
 
+app.include_router(aggregates.router)
 
 @app.get("/airports")
 async def get_airports(
